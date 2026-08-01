@@ -28,6 +28,9 @@ var _target: Node2D
 var _velocity_source: RigidBody2D
 var _shake_strength: float = 0.0
 var _configured: bool = false
+## 是否锁定到固定点（重生过渡：先挪到出生点）
+var _locked: bool = false
+var _lock_pos: Vector2 = Vector2.ZERO
 
 ## 注入跟随目标与速度来源（须在 add_child 之前调用）
 func configure(target: Node2D, velocity_source: RigidBody2D) -> void:
@@ -38,6 +41,20 @@ func configure(target: Node2D, velocity_source: RigidBody2D) -> void:
 ## 叠加一次碰撞震屏
 func add_shake(strength: float) -> void:
 	_shake_strength = minf(shake_max_offset, maxf(_shake_strength, strength))
+
+## 立刻锁定并瞬移到某点（随后弹簧会跟住该点）
+func lock_to(pos: Vector2) -> void:
+	_locked = true
+	_lock_pos = pos
+	if _spring != null:
+		_spring.reset(pos)
+	global_position = pos
+
+## 解除锁定，弹簧从当前位置重新跟上目标
+func unlock() -> void:
+	_locked = false
+	if _spring != null and _target != null:
+		_spring.reset(_target.global_position)
 
 func _ready() -> void:
 	if not _configured:
@@ -50,11 +67,14 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if _spring == null or _target == null:
 		return
-	var vel: Vector2 = Vector2.ZERO
-	if _velocity_source != null:
-		vel = _velocity_source.linear_velocity
-	var ahead: Vector2 = (vel * look_ahead_time).limit_length(max_look_ahead)
-	_spring.target = _target.global_position + ahead
+	if _locked:
+		_spring.target = _lock_pos
+	else:
+		var vel: Vector2 = Vector2.ZERO
+		if _velocity_source != null:
+			vel = _velocity_source.linear_velocity
+		var ahead: Vector2 = (vel * look_ahead_time).limit_length(max_look_ahead)
+		_spring.target = _target.global_position + ahead
 	var base: Vector2 = _spring.update(delta)
 
 	# 震屏：强度衰减，位移每帧随机

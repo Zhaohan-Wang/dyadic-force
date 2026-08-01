@@ -3,17 +3,15 @@ extends CanvasLayer
 ## 关卡 HUD：红心血量、计时面板、教程对话气泡、开场关名提示。
 ## 只订阅 LevelState 信号，不直接接触关卡逻辑。
 
-## 每颗红心代表的 HP 值
-const HP_PER_HEART: float = 20.0
-## 红心数量
-const HEART_COUNT: int = 5
+## 固定三格整心（与 LevelDef.ball_max_hp = 3 对齐）
+const HEART_COUNT: int = 3
 
 var _state: LevelState
 var _root: Control
 ## 红心节点与其弹簧
 var _hearts: Array[TextureRect] = []
 var _heart_springs: Array[UiSpring] = []
-## 上一次显示的半心数量（用于判断掉血弹动哪颗心）
+## 上一次显示的半心数（0～6；掉血时弹动对应那颗）
 var _prev_halves: int = -1
 var _time_label: Label
 var _time_tag: Label
@@ -53,7 +51,7 @@ func _build() -> void:
 		heart.texture = MenuKit.heart_texture(0)
 		heart.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		heart.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		heart.custom_minimum_size = Vector2(72, 64)
+		heart.custom_minimum_size = Vector2(80, 72)
 		heart.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		hearts_row.add_child(heart)
 		_hearts.append(heart)
@@ -115,17 +113,17 @@ func _show_level_name(level_name: String) -> void:
 
 # ---------- 信号响应 ----------
 
-## HP → 红心（半心粒度）；掉血时对应红心弹动
-func _on_hp(hp: float, max_hp: float) -> void:
-	var ratio: float = 0.0 if max_hp <= 0.0 else clampf(hp / max_hp, 0.0, 1.0)
-	var halves: int = int(round(ratio * float(HEART_COUNT) * 2.0))
+## HP → 三格红心（满 / 半 / 空）；掉血时对应红心弹动
+func _on_hp(hp: float, _max_hp: float) -> void:
+	# 3 心 × 2 = 6 个半心刻度，和浮点伤对齐
+	var halves: int = clampi(int(round(hp * 2.0)), 0, HEART_COUNT * 2)
 	for i: int in HEART_COUNT:
 		var heart_halves: int = clampi(halves - i * 2, 0, 2)
 		# 0=空 1=半 2=满 → 贴图状态 2=空 1=半 0=满
 		_hearts[i].texture = MenuKit.heart_texture(2 - heart_halves)
 	if _prev_halves >= 0 and halves < _prev_halves:
-		var idx: int = clampi((halves - 1) / 2 if halves > 0 else 0, 0, HEART_COUNT - 1)
-		_heart_springs[idx].punch(0.5)
+		var idx: int = clampi((halves) / 2, 0, HEART_COUNT - 1)
+		_heart_springs[idx].punch(0.55)
 	_prev_halves = halves
 
 func _on_time(time_left: float, elapsed: float, timed: bool) -> void:

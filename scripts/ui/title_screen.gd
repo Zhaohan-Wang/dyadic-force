@@ -169,17 +169,12 @@ func _make_toggle_row(text: String, initial: bool, on_changed: Callable) -> Cont
 	toggle.button_pressed = initial
 	toggle.custom_minimum_size = Vector2(72, 72)
 	toggle.focus_mode = Control.FOCUS_ALL
-	var normal: StyleBoxTexture = StyleBoxTexture.new()
-	normal.texture = load("res://assets/ui/sprout_btn_square.png") as Texture2D
-	normal.region_rect = Rect2(11, 59, 26, 28)
-	normal.texture_margin_left = 8.0
-	normal.texture_margin_right = 8.0
-	normal.texture_margin_top = 8.0
-	normal.texture_margin_bottom = 10.0
-	toggle.add_theme_stylebox_override("normal", normal)
-	toggle.add_theme_stylebox_override("hover", normal)
-	toggle.add_theme_stylebox_override("focus", normal)
-	toggle.add_theme_stylebox_override("pressed", normal)
+	toggle.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var square: StyleBoxTexture = MenuKit.make_square_stylebox()
+	toggle.add_theme_stylebox_override("normal", square)
+	toggle.add_theme_stylebox_override("hover", square)
+	toggle.add_theme_stylebox_override("focus", square)
+	toggle.add_theme_stylebox_override("pressed", square)
 
 	var check: TextureRect = MenuKit.make_icon("check_dark", 44.0)
 	check.set_anchors_preset(Control.PRESET_CENTER)

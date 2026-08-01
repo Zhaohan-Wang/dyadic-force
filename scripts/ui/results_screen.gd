@@ -61,7 +61,7 @@ func _build() -> void:
 	box.add_child(_make_stat_row("TIME", "%02d:%02d" % [t / 60, t % 60]))
 	var hp: float = float(result.get("hp", 0.0))
 	var max_hp: float = float(result.get("max_hp", 100.0))
-	box.add_child(_make_stat_row("BALL HP", "%d / %d" % [int(round(hp)), int(round(max_hp))]))
+	box.add_child(_make_stat_row("HEARTS", "%d / %d" % [int(round(hp)), int(round(max_hp))]))
 
 	var filler: Control = Control.new()
 	filler.size_flags_vertical = Control.SIZE_EXPAND_FILL

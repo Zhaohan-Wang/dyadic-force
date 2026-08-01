@@ -276,6 +276,30 @@ func _on_ball_impacted(strength: float) -> void:
 func shake(strength: float) -> void:
 	_on_ball_impacted(strength)
 
+## 死亡爆炸用的重震屏（比普通撞击更大）
+func death_shake() -> void:
+	if not GameState.shake_enabled:
+		return
+	for cam: SpringCamera2D in [_cam_p1, _cam_p2]:
+		if cam == null:
+			continue
+		cam.shake_max_offset = 22.0
+		cam.add_shake(20.0)
+
+## 两侧相机锁定到指定世界坐标（死亡后挪到出生点）
+func lock_cameras(pos: Vector2) -> void:
+	if _cam_p1 != null:
+		_cam_p1.lock_to(pos)
+	if _cam_p2 != null:
+		_cam_p2.lock_to(pos)
+
+## 解除相机锁定，恢复跟随猴子
+func unlock_cameras() -> void:
+	if _cam_p1 != null:
+		_cam_p1.unlock()
+	if _cam_p2 != null:
+		_cam_p2.unlock()
+
 ## 角落玩家角标：只有像素字，不加背景面板
 func _add_corner_badge(is_left: bool, text: String, fill: Color) -> void:
 	var label: TextureRect = TextureRect.new()

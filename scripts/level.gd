@@ -133,24 +133,49 @@ func _on_ball_died() -> void:
 	InputHub.input_frozen = true
 	await _respawn_sequence()
 
-## 重生：渐隐 → 重置 → 渐入
+## 死亡 → 爆炸 → 相机回出生点 → 闪白重生（参考 Celeste / Mario）
 func _respawn_sequence() -> void:
-	var sprite: CanvasItem = _ball.get_node("BallSprite") as CanvasItem
-	var tween: Tween = create_tween()
-	tween.tween_property(sprite, "modulate:a", 0.0, 0.35)
-	await tween.finished
+	var death_pos: Vector2 = _ball.global_position
 
-	_ball.global_position = _def.spawn_point
+	# 1) 撞烂：爆炸 + 顿帧 + 重震屏，球立刻消失冻住
+	BallBurst.play(_world, death_pos)
+	_health.clear_visuals()
 	_ball.linear_velocity = Vector2.ZERO
 	_ball.angular_velocity = 0.0
+	_ball.freeze = true
+	_ball.visible = false
+
+	# 顿帧（hitstop）：世界慢放一瞬，强化撞碎冲击感
+	Engine.time_scale = 0.05
+	await get_tree().create_timer(0.09, true, false, true).timeout
+	Engine.time_scale = 1.0
+	_split_screen.death_shake()
+
+	# 让玩家看清爆炸
+	await get_tree().create_timer(0.45).timeout
+
+	# 2) 两侧相机锁定并挪到出生点
+	_split_screen.lock_cameras(_def.spawn_point)
+	await get_tree().create_timer(0.55).timeout
+
+	# 3) 球放到出生点（仍隐藏），正式关扣时
+	_ball.global_position = _def.spawn_point
 	_ball.rotation = 0.0
+	_ball.linear_velocity = Vector2.ZERO
+	_ball.angular_velocity = 0.0
 	if not _def.is_practice:
 		_state.apply_time_penalty(_def.death_time_penalty)
-	_state.revive()
 
-	tween = create_tween()
-	tween.tween_property(sprite, "modulate:a", 1.0, 0.35)
-	await tween.finished
+	# 4) 出现：满血 + 闪白 + 无敌闪烁，再交还操作
+	_ball.visible = true
+	_ball.freeze = false
+	_ball.modulate = Color.WHITE
+	_state.revive()
+	_health.begin_spawn_protection()
+	_split_screen.unlock_cameras()
+	_split_screen.shake(90.0)
+
+	await get_tree().create_timer(0.2).timeout
 	InputHub.input_frozen = false
 	_respawning = false
 

@@ -73,9 +73,9 @@ func tick_time(delta: float) -> bool:
 		time_changed.emit(time_left, elapsed, timed)
 	return false
 
-## 死亡惩罚扣时间
+## 死亡惩罚扣时间（重生过渡 DEAD 阶段也会扣）
 func apply_time_penalty(seconds: float) -> void:
-	if timed and phase == Phase.RUNNING:
+	if timed and (phase == Phase.RUNNING or phase == Phase.DEAD):
 		time_left = maxf(0.0, time_left - seconds)
 		time_changed.emit(time_left, elapsed, timed)
 

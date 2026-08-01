@@ -19,8 +19,8 @@ extends Resource
 @export var goal_point: Vector2 = Vector2(400.0, 144.0)
 ## 限时（秒）；0 = 不限时（练习关）
 @export var time_limit: float = 0.0
-## 球的最大生命值
-@export var ball_max_hp: float = 100.0
+## 球的最大生命值（整心格数；HUD 固定显示 3 格，默认 3）
+@export var ball_max_hp: float = 3.0
 ## 死亡重生时正式关扣除的时间（秒）；练习关忽略
 @export var death_time_penalty: float = 5.0
 ## 练习关教程提示序列（正式关留空）

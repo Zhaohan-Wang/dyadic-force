@@ -23,22 +23,44 @@ const COL_GRASS_B: Color = Color("6c9c42")
 
 # ---------- 纹理与图集坐标 ----------
 static var _font: FontFile = preload("res://assets/ui/pixel_font_sprout.ttf")
-static var _tex_panel: Texture2D = preload("res://assets/ui/sprout_panel.png")
-static var _tex_btn_big: Texture2D = preload("res://assets/ui/sprout_btn_big.png")
-static var _tex_dialog: Texture2D = preload("res://assets/ui/sprout_dialog.png")
+static var _tex_panel_src: Texture2D = preload("res://assets/ui/sprout_panel.png")
+static var _tex_btn_big_src: Texture2D = preload("res://assets/ui/sprout_btn_big.png")
+static var _tex_btn_square_src: Texture2D = preload("res://assets/ui/sprout_btn_square.png")
+static var _tex_dialog_src: Texture2D = preload("res://assets/ui/sprout_dialog.png")
 static var _tex_hearts: Texture2D = preload("res://assets/ui/sprout_hearts.png")
 static var _tex_icons: Texture2D = preload("res://assets/ui/sprout_icons.png")
 static var _tex_kb_keys: Texture2D = preload("res://assets/ui/kb_keys.png")
 static var _tex_kb_symbols: Texture2D = preload("res://assets/ui/kb_symbols.png")
 static var _tex_pad: Texture2D = preload("res://assets/ui/pad_xbox.png")
 
-## 空白面板在 sprout_panel.png 中的区域（探测值）
-const PANEL_REGION: Rect2 = Rect2(139, 12, 106, 122)
-## 大按钮常态 / 按下态区域（探测值）
-const BTN_REGION_NORMAL: Rect2 = Rect2(3, 2, 90, 27)
-const BTN_REGION_PRESSED: Rect2 = Rect2(99, 4, 90, 25)
-## 对话气泡区域（左侧带小尾巴）
-const DIALOG_REGION: Rect2 = Rect2(2, 7, 172, 35)
+## 九宫格最近邻放大倍率：源素材圆角只有 2～3px，
+## 直接用到 1080p 会几乎看不见；放大后阶梯圆角才清晰。
+const PATCH_SCALE: int = 4
+
+## 源图区域（未放大；探测值）
+const PANEL_REGION_SRC: Rect2i = Rect2i(139, 12, 106, 122)
+const BTN_REGION_NORMAL_SRC: Rect2i = Rect2i(3, 2, 90, 27)
+const BTN_REGION_PRESSED_SRC: Rect2i = Rect2i(99, 4, 90, 25)
+const BTN_SQUARE_REGION_SRC: Rect2i = Rect2i(11, 59, 26, 28)
+const DIALOG_REGION_SRC: Rect2i = Rect2i(2, 7, 172, 35)
+
+## 源图九宫格边距（覆盖 3px 阶梯圆角 + 边框，且不超过半宽/半高）
+const PANEL_MARGIN_SRC: int = 8
+const BTN_MARGIN_L_SRC: int = 8
+const BTN_MARGIN_R_SRC: int = 8
+const BTN_MARGIN_T_SRC: int = 6
+const BTN_MARGIN_B_SRC: int = 8
+const DIALOG_MARGIN_L_SRC: int = 14  # 左侧含对话尾巴
+const DIALOG_MARGIN_R_SRC: int = 8
+const DIALOG_MARGIN_T_SRC: int = 8
+const DIALOG_MARGIN_B_SRC: int = 8
+
+## 放大后的缓存纹理（首次使用时烘焙）
+static var _tex_panel: Texture2D = null
+static var _tex_btn_normal: Texture2D = null
+static var _tex_btn_pressed: Texture2D = null
+static var _tex_btn_square: Texture2D = null
+static var _tex_dialog: Texture2D = null
 ## 红心三态区域：满 / 半 / 空
 const HEART_REGIONS: Array[Rect2] = [
 	Rect2(7, 25, 18, 16), Rect2(39, 25, 18, 16), Rect2(71, 25, 18, 16),
@@ -130,63 +152,87 @@ static func make_dim_overlay(alpha: float = 0.45) -> ColorRect:
 	rect.mouse_filter = Control.MOUSE_FILTER_STOP
 	return rect
 
+# ---------- 九宫格烘焙 ----------
+
+## 从源贴图裁出区域，按 PATCH_SCALE 最近邻放大，保留像素阶梯圆角
+static func _bake_patch(src: Texture2D, region: Rect2i) -> Texture2D:
+	var img: Image = src.get_image()
+	var crop: Image = img.get_region(region)
+	crop.resize(region.size.x * PATCH_SCALE, region.size.y * PATCH_SCALE, Image.INTERPOLATE_NEAREST)
+	return ImageTexture.create_from_image(crop)
+
+## 懒加载：放大后的面板 / 按钮 / 对话框贴图
+static func _ensure_patches() -> void:
+	if _tex_panel != null:
+		return
+	_tex_panel = _bake_patch(_tex_panel_src, PANEL_REGION_SRC)
+	_tex_btn_normal = _bake_patch(_tex_btn_big_src, BTN_REGION_NORMAL_SRC)
+	_tex_btn_pressed = _bake_patch(_tex_btn_big_src, BTN_REGION_PRESSED_SRC)
+	_tex_btn_square = _bake_patch(_tex_btn_square_src, BTN_SQUARE_REGION_SRC)
+	_tex_dialog = _bake_patch(_tex_dialog_src, DIALOG_REGION_SRC)
+
 # ---------- 面板 ----------
 
-## Sprout 空白圆角面板（九宫格拉伸）
+## Sprout 空白圆角面板（九宫格拉伸；像素阶梯圆角）
 static func make_panel(min_size: Vector2) -> NinePatchRect:
+	_ensure_patches()
 	var panel: NinePatchRect = NinePatchRect.new()
 	panel.texture = _tex_panel
-	panel.region_rect = PANEL_REGION
-	panel.patch_margin_left = 12
-	panel.patch_margin_right = 12
-	panel.patch_margin_top = 12
-	panel.patch_margin_bottom = 12
+	panel.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var m: int = PANEL_MARGIN_SRC * PATCH_SCALE
+	panel.patch_margin_left = m
+	panel.patch_margin_right = m
+	panel.patch_margin_top = m
+	panel.patch_margin_bottom = m
 	panel.custom_minimum_size = min_size
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return panel
 
 ## Sprout 对话气泡（左侧带尾巴；适合教程提示）
 static func make_dialog(min_size: Vector2) -> NinePatchRect:
+	_ensure_patches()
 	var bubble: NinePatchRect = NinePatchRect.new()
 	bubble.texture = _tex_dialog
-	bubble.region_rect = DIALOG_REGION
-	bubble.patch_margin_left = 16
-	bubble.patch_margin_right = 10
-	bubble.patch_margin_top = 10
-	bubble.patch_margin_bottom = 10
+	bubble.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	bubble.patch_margin_left = DIALOG_MARGIN_L_SRC * PATCH_SCALE
+	bubble.patch_margin_right = DIALOG_MARGIN_R_SRC * PATCH_SCALE
+	bubble.patch_margin_top = DIALOG_MARGIN_T_SRC * PATCH_SCALE
+	bubble.patch_margin_bottom = DIALOG_MARGIN_B_SRC * PATCH_SCALE
 	bubble.custom_minimum_size = min_size
 	bubble.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return bubble
 
 # ---------- 按钮 ----------
 
-## 用大按钮图集区域构建 StyleBoxTexture
-static func _btn_stylebox(region: Rect2) -> StyleBoxTexture:
+## 用放大后的大按钮贴图构建 StyleBoxTexture（保留像素圆角）
+static func _btn_stylebox(tex: Texture2D) -> StyleBoxTexture:
 	var style: StyleBoxTexture = StyleBoxTexture.new()
-	style.texture = _tex_btn_big
-	style.region_rect = region
-	style.texture_margin_left = 24.0
-	style.texture_margin_right = 24.0
-	style.texture_margin_top = 16.0
-	style.texture_margin_bottom = 24.0
-	style.content_margin_left = 32.0
-	style.content_margin_right = 32.0
-	style.content_margin_top = 10.0
-	style.content_margin_bottom = 18.0
+	style.texture = tex
+	style.texture_margin_left = float(BTN_MARGIN_L_SRC * PATCH_SCALE)
+	style.texture_margin_right = float(BTN_MARGIN_R_SRC * PATCH_SCALE)
+	style.texture_margin_top = float(BTN_MARGIN_T_SRC * PATCH_SCALE)
+	style.texture_margin_bottom = float(BTN_MARGIN_B_SRC * PATCH_SCALE)
+	# 内容边距按放大后的按钮厚度留白，文字不贴边
+	style.content_margin_left = 36.0
+	style.content_margin_right = 36.0
+	style.content_margin_top = 14.0
+	style.content_margin_bottom = 22.0
 	return style
 
 ## Sprout 大按钮：像素字 + 常态/按下贴图 + 聚焦弹簧放大与橙色高亮。
 ## 鼠标悬停会自动抢焦点，保证键盘 / 手柄 / 鼠标三者状态一致。
 static func make_big_button(text: String, font_px: int = 28, min_size: Vector2 = Vector2(384, 96)) -> Button:
+	_ensure_patches()
 	var btn: Button = Button.new()
 	btn.text = text
 	btn.custom_minimum_size = min_size
 	btn.focus_mode = Control.FOCUS_ALL
-	btn.add_theme_stylebox_override("normal", _btn_stylebox(BTN_REGION_NORMAL))
-	btn.add_theme_stylebox_override("hover", _btn_stylebox(BTN_REGION_NORMAL))
-	btn.add_theme_stylebox_override("focus", _btn_stylebox(BTN_REGION_NORMAL))
-	btn.add_theme_stylebox_override("pressed", _btn_stylebox(BTN_REGION_PRESSED))
-	btn.add_theme_stylebox_override("disabled", _btn_stylebox(BTN_REGION_PRESSED))
+	btn.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	btn.add_theme_stylebox_override("normal", _btn_stylebox(_tex_btn_normal))
+	btn.add_theme_stylebox_override("hover", _btn_stylebox(_tex_btn_normal))
+	btn.add_theme_stylebox_override("focus", _btn_stylebox(_tex_btn_normal))
+	btn.add_theme_stylebox_override("pressed", _btn_stylebox(_tex_btn_pressed))
+	btn.add_theme_stylebox_override("disabled", _btn_stylebox(_tex_btn_pressed))
 	btn.add_theme_font_override("font", prepare_font())
 	btn.add_theme_font_size_override("font_size", font_px)
 	btn.add_theme_color_override("font_color", COL_INK)
@@ -202,6 +248,18 @@ static func make_big_button(text: String, font_px: int = 28, min_size: Vector2 =
 			btn.grab_focus()
 	)
 	return btn
+
+## 方块勾选/图标按钮用的九宫格 StyleBox（像素圆角）
+static func make_square_stylebox() -> StyleBoxTexture:
+	_ensure_patches()
+	var style: StyleBoxTexture = StyleBoxTexture.new()
+	style.texture = _tex_btn_square
+	var m: float = float(6 * PATCH_SCALE)  # 源图圆角约 3～4px
+	style.texture_margin_left = m
+	style.texture_margin_right = m
+	style.texture_margin_top = m
+	style.texture_margin_bottom = m
+	return style
 
 # ---------- 图标 ----------
 
