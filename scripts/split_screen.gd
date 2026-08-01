@@ -58,6 +58,8 @@ func _build_layout() -> void:
 	var vig_r: TextureRect = _make_vignette(false)
 	vig_l.z_index = 10
 	vig_r.z_index = 10
+	vig_l.visible = GameState.vignette_enabled
+	vig_r.visible = GameState.vignette_enabled
 	_root.add_child(vig_l)
 	_root.add_child(vig_r)
 
@@ -260,11 +262,19 @@ func _apply_limits(cam: Camera2D) -> void:
 	cam.limit_bottom = island_h_px + limit_margin
 	cam.limit_smoothed = true
 
-## 球碰撞冲击 → 两侧相机同步震屏
+## 球碰撞冲击 → 两侧相机同步震屏（可被设置关闭）
 func _on_ball_impacted(strength: float) -> void:
+	if not GameState.shake_enabled:
+		return
+	if _cam_p1 == null or _cam_p2 == null:
+		return
 	var shake: float = clampf(strength * 0.045, 1.5, 9.0)
 	_cam_p1.add_shake(shake)
 	_cam_p2.add_shake(shake)
+
+## 外部按需触发震屏（例如扣血反馈）
+func shake(strength: float) -> void:
+	_on_ball_impacted(strength)
 
 ## 角落玩家角标：只有像素字，不加背景面板
 func _add_corner_badge(is_left: bool, text: String, fill: Color) -> void:

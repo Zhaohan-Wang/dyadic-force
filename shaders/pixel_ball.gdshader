@@ -14,6 +14,8 @@ uniform float pixel_count : hint_range(8.0, 128.0) = 40.0;
 uniform mat3 ball_rot;
 // 指向光源的方向（视图空间，y 轴向下，z 轴指向相机）
 uniform vec3 light_dir = vec3(-0.45, -0.55, 0.70);
+// 受击闪红强度（0~1，由 BallHealth 驱动）
+uniform float damage_flash : hint_range(0.0, 1.0) = 0.0;
 
 // —— Sprout Lands 风格配色 ——
 uniform vec4 color_cream : source_color = vec4(0.949, 0.898, 0.737, 1.0);   // 奶油色条纹
@@ -92,6 +94,11 @@ void fragment() {
 		// 7) 外圈深色描边，贴合像素美术风格
 		if (r2 > 1.0 - 3.0 / pixel_count) {
 			col = color_outline.rgb;
+		}
+
+		// 8) 受击闪红
+		if (damage_flash > 0.001) {
+			col = mix(col, vec3(0.92, 0.28, 0.22), damage_flash * 0.65);
 		}
 
 		COLOR = vec4(col, 1.0);

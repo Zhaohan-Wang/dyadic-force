@@ -11,9 +11,15 @@ config_version=5
 [application]
 
 config/name="DyadicForce"
-run/main_scene="res://scenes/main.tscn"
+run/main_scene="res://scenes/title_screen.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
+
+[autoload]
+
+GameState="*res://autoload/game_state.gd"
+InputHub="*res://autoload/input_hub.gd"
+SceneDirector="*res://autoload/scene_director.gd"
 
 [display]
 

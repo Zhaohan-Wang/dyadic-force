@@ -1,0 +1,85 @@
+[gd_scene load_steps=12 format=3]
+
+[ext_resource type="Script" path="res://scripts/level.gd" id="1_level"]
+[ext_resource type="Script" path="res://scripts/ball.gd" id="2_ball"]
+[ext_resource type="Script" path="res://scripts/split_screen.gd" id="3_split"]
+[ext_resource type="Script" path="res://scripts/monkey.gd" id="4_monkey"]
+[ext_resource type="Shader" path="res://shaders/pixel_ball.gdshader" id="5_ball_shader"]
+[ext_resource type="Shader" path="res://shaders/ball_shadow.gdshader" id="6_shadow_shader"]
+[ext_resource type="Resource" path="res://levels/practice.tres" id="7_practice"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_ball"]
+shader = ExtResource("5_ball_shader")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_shadow"]
+shader = ExtResource("6_shadow_shader")
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_ball"]
+radius = 44.0
+
+[sub_resource type="PhysicsMaterial" id="PhysicsMaterial_ball"]
+friction = 0.4
+bounce = 0.45
+
+[node name="Level" type="Node2D"]
+script = ExtResource("1_level")
+fallback_level = ExtResource("7_practice")
+
+[node name="SplitScreen" type="CanvasLayer" parent="."]
+script = ExtResource("3_split")
+camera_zoom = 4.0
+limit_margin = 64
+island_w_px = 480
+island_h_px = 288
+
+[node name="WaterLayer" type="TileMapLayer" parent="."]
+
+[node name="GroundLayer" type="TileMapLayer" parent="."]
+
+[node name="DecorLayer" type="TileMapLayer" parent="."]
+
+[node name="World" type="Node2D" parent="."]
+y_sort_enabled = true
+
+[node name="Ball" type="RigidBody2D" parent="World"]
+position = Vector2(240, 144)
+mass = 1.0
+physics_material_override = SubResource("PhysicsMaterial_ball")
+gravity_scale = 0.0
+continuous_cd = 1
+linear_damp = 1.0
+angular_damp = 1.5
+collision_layer = 1
+collision_mask = 1
+script = ExtResource("2_ball")
+ball_radius = 44.0
+texture_size = 88
+
+[node name="Shadow" type="Sprite2D" parent="World/Ball"]
+material = SubResource("ShaderMaterial_shadow")
+position = Vector2(0, 22)
+scale = Vector2(1, 0.5)
+
+[node name="BallSprite" type="Sprite2D" parent="World/Ball"]
+material = SubResource("ShaderMaterial_ball")
+
+[node name="Monkey1" type="Node2D" parent="World/Ball"]
+position = Vector2(0, -51)
+script = ExtResource("4_monkey")
+player_slot = 0
+action_prefix = "p1"
+display_name = "P1"
+arrow_region = Rect2(256, 0, 16, 16)
+label_color = Color(1, 0.98, 0.9, 1)
+
+[node name="Monkey2" type="Node2D" parent="World/Ball"]
+position = Vector2(0, 51)
+script = ExtResource("4_monkey")
+player_slot = 1
+action_prefix = "p2"
+display_name = "P2"
+arrow_region = Rect2(272, 0, 16, 16)
+label_color = Color(0.95, 0.78, 0.45, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="World/Ball"]
+shape = SubResource("CircleShape2D_ball")

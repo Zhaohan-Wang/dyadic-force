@@ -14,7 +14,9 @@ extends Node2D
 ## - 头顶用像素字体显示 P1 / P2 标签（关闭抗锯齿保证锐利）；
 ## - 按方向键时在身旁弹出指向该方向的箭头（弹簧弹出动效）。
 
-## 输入动作前缀（"p1" 或 "p2"，对应输入映射里的 p1_left 等）
+## 玩家槽位（0 = P1，1 = P2），输入统一走 InputHub
+@export var player_slot: int = 0
+## 兼容旧场景的动作前缀（仅在无 InputHub 时回退）
 @export var action_prefix: String = "p1"
 ## 头顶显示的玩家标签
 @export var display_name: String = "P1"
@@ -71,6 +73,10 @@ func _ready() -> void:
 
 ## 读取本玩家当前的方向输入（球的脚本每个物理帧调用）
 func read_input() -> Vector2:
+	# 统一走 InputHub（autoload）；未就绪时回退动作映射
+	var hub: Node = get_node_or_null("/root/InputHub")
+	if hub != null:
+		return InputHub.get_move_vector(player_slot)
 	return Input.get_vector(
 		action_prefix + "_left", action_prefix + "_right",
 		action_prefix + "_up", action_prefix + "_down"

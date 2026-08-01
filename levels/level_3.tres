@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="LevelDef" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://resources/level_def.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+level_name = "LEVEL 3 - FINAL DASH"
+level_id = "level_3"
+island_size = Vector2i(40, 22)
+layout_seed = 20260833
+obstacle_density = 1.7
+spawn_point = Vector2(96, 176)
+goal_point = Vector2(540, 176)
+time_limit = 120.0
+ball_max_hp = 80.0
+death_time_penalty = 8.0
+tutorial_steps = PackedStringArray()
+is_practice = false

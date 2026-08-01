@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="LevelDef" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://resources/level_def.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+level_name = "LEVEL 2 - HEDGE MAZE"
+level_id = "level_2"
+island_size = Vector2i(34, 20)
+layout_seed = 20260822
+obstacle_density = 1.35
+spawn_point = Vector2(100, 160)
+goal_point = Vector2(460, 160)
+time_limit = 100.0
+ball_max_hp = 90.0
+death_time_penalty = 7.0
+tutorial_steps = PackedStringArray()
+is_practice = false

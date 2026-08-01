@@ -1,0 +1,96 @@
+extends Control
+## 选关界面：练习关 + 正式关 1/2/3。
+## 每关一张大按钮卡：左侧关名，右侧限时信息与通关星标。
+
+const LEVEL_PATHS: PackedStringArray = [
+	"res://levels/practice.tres",
+	"res://levels/level_1.tres",
+	"res://levels/level_2.tres",
+	"res://levels/level_3.tres",
+]
+
+func _ready() -> void:
+	_build()
+
+func _build() -> void:
+	add_child(MenuKit.make_grass_bg())
+
+	var title: Label = MenuKit.make_label("SELECT LEVEL", 56)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	title.position = Vector2(-400, 72)
+	title.size = Vector2(800, 72)
+	add_child(title)
+	UiSpring.attach(title, 0.5, 0.3).pop_in(0.02)
+
+	var col: VBoxContainer = VBoxContainer.new()
+	col.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	col.position = Vector2(-360, 210)
+	col.custom_minimum_size = Vector2(720, 620)
+	col.add_theme_constant_override("separation", 24)
+	add_child(col)
+
+	var delay: float = 0.12
+	var first_btn: Button = null
+	for path: String in LEVEL_PATHS:
+		var def: LevelDef = load(path) as LevelDef
+		if def == null:
+			continue
+		var btn: Button = _make_level_button(def)
+		col.add_child(btn)
+		UiSpring.attach(btn, 0.5, 0.3).pop_in(delay)
+		delay += 0.07
+		if first_btn == null:
+			first_btn = btn
+	if first_btn != null:
+		first_btn.grab_focus.call_deferred()
+
+	# 左上角返回提示
+	var back_row: HBoxContainer = HBoxContainer.new()
+	back_row.position = Vector2(40, 36)
+	back_row.add_theme_constant_override("separation", 12)
+	add_child(back_row)
+	back_row.add_child(MenuKit.make_key_icon("ESC", 44.0))
+	back_row.add_child(MenuKit.make_label("BACK", 28, Color(1, 1, 1, 0.75)))
+
+## 关卡卡片按钮：名称 + 限时/无计时 + 通关星
+func _make_level_button(def: LevelDef) -> Button:
+	var btn: Button = MenuKit.make_big_button("", 28, Vector2(720, 116))
+	btn.pressed.connect(func() -> void: _start_level(def))
+
+	var row: HBoxContainer = HBoxContainer.new()
+	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	row.offset_left = 40.0
+	row.offset_right = -40.0
+	row.offset_top = 8.0
+	row.offset_bottom = -18.0
+	row.add_theme_constant_override("separation", 16)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(row)
+
+	var name_label: Label = MenuKit.make_label(def.level_name, 28, MenuKit.COL_INK, 0)
+	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(name_label)
+
+	var info_text: String = "NO TIMER" if def.is_practice else "%d SEC" % int(def.time_limit)
+	var info_label: Label = MenuKit.make_label(info_text, 28, Color(MenuKit.COL_INK, 0.55), 0)
+	info_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(info_label)
+
+	if GameState.is_cleared(def.level_id):
+		row.add_child(MenuKit.make_icon("star_dark", 44.0))
+
+	# 焦点时文字跟随高亮（大按钮本体只管背景与弹簧）
+	btn.focus_entered.connect(func() -> void: name_label.label_settings.font_color = MenuKit.COL_ACCENT)
+	btn.focus_exited.connect(func() -> void: name_label.label_settings.font_color = MenuKit.COL_INK)
+	return btn
+
+func _unhandled_key_input(event: InputEvent) -> void:
+	var key: InputEventKey = event as InputEventKey
+	if key != null and key.pressed and not key.echo and key.keycode == KEY_ESCAPE:
+		SceneDirector.go_to("res://scenes/pairing_screen.tscn")
+
+func _start_level(def: LevelDef) -> void:
+	GameState.current_level = def
+	SceneDirector.go_to("res://scenes/level.tscn")
