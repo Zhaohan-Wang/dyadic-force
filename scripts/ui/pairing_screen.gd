@@ -36,16 +36,16 @@ func _ready() -> void:
 func _build() -> void:
 	add_child(MenuKit.make_grass_bg())
 
-	var title: Label = MenuKit.make_label("PAIR UP", 56)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# 页面标题统一用街机粗方块字（Press Start 2P）
+	var title: Label = MenuKit.make_title_label("PAIR UP", 40)
 	title.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	title.position = Vector2(-400, 64)
 	title.size = Vector2(800, 72)
 	add_child(title)
 	UiSpring.attach(title, 0.5, 0.3).pop_in(0.02)
 
-	var sub: Label = MenuKit.make_label("BOTH PLAYERS MUST JOIN TO START", 28, Color(1.0, 0.93, 0.78, 0.9))
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# 副标题：告诉玩家门槛，字号/透明度都压在主标题之下
+	var sub: Label = MenuKit.make_world_caption("BOTH PLAYERS MUST JOIN TO START", 22)
 	sub.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	sub.position = Vector2(-400, 152)
 	sub.size = Vector2(800, 40)

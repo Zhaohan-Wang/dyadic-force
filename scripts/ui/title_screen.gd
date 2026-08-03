@@ -1,6 +1,14 @@
 extends Control
-## 标题画面：LOGO + 猴子装饰 + START/SETTINGS/QUIT。
-## 全部构件走 MenuKit（Sprout 素材），入场用弹簧逐个弹入。
+## 标题画面：全屏像素场景背景 + LOGO 贴图（浮动动效）+ START/SETTINGS/QUIT。
+## 背景图已含猴子推球场景，不再叠加代码猴子装饰。
+
+## 全屏背景场景图（两只猴子推大球）
+const TEX_BG: Texture2D = preload("res://assets/ui/title_bg.jpg")
+## 抠好透明底的像素 LOGO（691x381，1:1 显示保证像素锐利）
+const TEX_LOGO: Texture2D = preload("res://assets/ui/title_logo.png")
+## LOGO 浮动动效的振幅（像素）与半周期（秒）
+const LOGO_BOB_PX: float = 12.0
+const LOGO_BOB_HALF_S: float = 1.6
 
 ## 设置弹窗根节点（含遮罩）
 var _settings_layer: Control = null
@@ -11,31 +19,45 @@ func _ready() -> void:
 	_build()
 
 func _build() -> void:
-	add_child(MenuKit.make_grass_bg())
+	# ---- 全屏背景场景 ----
+	var bg: TextureRect = TextureRect.new()
+	bg.texture = TEX_BG
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	bg.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(bg)
 
-	# ---- LOGO ----
-	var logo: Label = MenuKit.make_label("DYADIC FORCE", 84)
-	logo.label_settings.shadow_color = Color(MenuKit.COL_OUTLINE, 0.55)
-	logo.label_settings.shadow_offset = Vector2(0, 8)
-	logo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# ---- LOGO 贴图：顶部居中，1:1 尺寸，上下缓慢浮动 ----
+	var logo: TextureRect = TextureRect.new()
+	logo.texture = TEX_LOGO
+	logo.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	logo.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	logo.position = Vector2(-600, 150)
-	logo.size = Vector2(1200, 100)
+	var logo_y: float = 48.0
+	logo.position = Vector2(-345.0, logo_y)
+	logo.size = Vector2(691.0, 381.0)
+	logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(logo)
 	UiSpring.attach(logo, 0.55, 0.3).pop_in(0.05)
+	# 浮动动效：正弦缓动上下往复（与弹簧只动 scale 不冲突）
+	var bob: Tween = create_tween().set_loops()
+	bob.tween_property(logo, "position:y", logo_y + LOGO_BOB_PX, LOGO_BOB_HALF_S) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	bob.tween_property(logo, "position:y", logo_y, LOGO_BOB_HALF_S) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
-	var sub: Label = MenuKit.make_label("TWO MONKEYS - ONE BIG BALL", 28, Color(1.0, 0.93, 0.78, 0.9))
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# 副标题：比 LOGO 小两档，只交代题材，不抢招牌
+	var sub: Label = MenuKit.make_world_caption("TWO MONKEYS - ONE BIG BALL", 22)
 	sub.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	sub.position = Vector2(-400, 268)
+	sub.position = Vector2(-400, 448)
 	sub.size = Vector2(800, 40)
 	add_child(sub)
 	UiSpring.attach(sub, 0.55, 0.25).pop_in(0.15)
 
-	# ---- 菜单按钮 ----
+	# ---- 菜单按钮：左下角（背景棋盘垫区域），避开中部猴子推球主体 ----
 	var col: VBoxContainer = VBoxContainer.new()
-	col.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	col.position = Vector2(-220, 420)
+	col.position = Vector2(120, 590)
 	col.custom_minimum_size = Vector2(440, 400)
 	col.add_theme_constant_override("separation", 28)
 	add_child(col)
@@ -60,10 +82,6 @@ func _build() -> void:
 		delay += 0.08
 	start_btn.grab_focus.call_deferred()
 
-	# ---- 两侧猴子装饰 ----
-	_add_monkey(Vector2(560, 700), false, 0.4)
-	_add_monkey(Vector2(1360, 700), true, 0.5)
-
 	# ---- 底部操作提示 ----
 	var hint: HBoxContainer = HBoxContainer.new()
 	hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
@@ -74,25 +92,12 @@ func _build() -> void:
 	add_child(hint)
 	hint.add_child(MenuKit.make_key_icon("UP", 40.0))
 	hint.add_child(MenuKit.make_key_icon("DOWN", 40.0))
-	hint.add_child(MenuKit.make_label("MOVE", 28, Color(1, 1, 1, 0.75)))
+	hint.add_child(MenuKit.make_world_caption("MOVE", 22))
 	var spacer: Control = Control.new()
 	spacer.custom_minimum_size = Vector2(36, 0)
 	hint.add_child(spacer)
 	hint.add_child(MenuKit.make_pad_icon("a", 40.0))
-	hint.add_child(MenuKit.make_label("SELECT", 28, Color(1, 1, 1, 0.75)))
-
-## 摆一只闲置动画的猴子并渐入
-func _add_monkey(pos: Vector2, flip: bool, delay: float) -> void:
-	var holder: Control = Control.new()
-	holder.position = pos
-	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(holder)
-	var monkey: AnimatedSprite2D = MenuKit.make_monkey_sprite(6.0, flip)
-	holder.add_child(monkey)
-	holder.modulate.a = 0.0
-	var tween: Tween = create_tween()
-	tween.tween_interval(delay)
-	tween.tween_property(holder, "modulate:a", 1.0, 0.3)
+	hint.add_child(MenuKit.make_world_caption("SELECT", 22))
 
 # ---------- 设置弹窗 ----------
 
@@ -121,8 +126,8 @@ func _open_settings() -> void:
 	box.add_theme_constant_override("separation", 24)
 	panel.add_child(box)
 
-	var title: Label = MenuKit.make_label("SETTINGS", 42, MenuKit.COL_INK, 0)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# 面板标题：强调橙 + 面板硬阴影（奶油底上绝不用奶油字）
+	var title: Label = MenuKit.make_title_label("SETTINGS", 32, MenuKit.COL_ACCENT, true)
 	box.add_child(title)
 
 	var shake_row: Control = _make_toggle_row("SCREEN SHAKE", GameState.shake_enabled,

@@ -2,21 +2,14 @@ extends Control
 ## 选关界面：练习关 + 正式关 1/2/3。
 ## 每关一张大按钮卡：左侧关名，右侧限时信息与通关星标。
 
-const LEVEL_PATHS: PackedStringArray = [
-	"res://levels/practice.tres",
-	"res://levels/level_1.tres",
-	"res://levels/level_2.tres",
-	"res://levels/level_3.tres",
-]
-
 func _ready() -> void:
 	_build()
 
 func _build() -> void:
 	add_child(MenuKit.make_grass_bg())
 
-	var title: Label = MenuKit.make_label("SELECT LEVEL", 56)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# 页面标题统一用街机粗方块字（Press Start 2P）
+	var title: Label = MenuKit.make_title_label("SELECT LEVEL", 40)
 	title.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	title.position = Vector2(-400, 72)
 	title.size = Vector2(800, 72)
@@ -32,7 +25,7 @@ func _build() -> void:
 
 	var delay: float = 0.12
 	var first_btn: Button = null
-	for path: String in LEVEL_PATHS:
+	for path: String in GameState.LEVEL_ORDER:
 		var def: LevelDef = load(path) as LevelDef
 		if def == null:
 			continue

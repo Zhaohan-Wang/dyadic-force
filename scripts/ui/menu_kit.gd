@@ -23,6 +23,8 @@ const COL_GRASS_B: Color = Color("6c9c42")
 
 # ---------- 纹理与图集坐标 ----------
 static var _font: FontFile = preload("res://assets/ui/pixel_font_sprout.ttf")
+## 标题专用粗像素字体（Press Start 2P，SIL OFL 授权，8x8 网格设计）
+static var _font_title: FontFile = preload("res://assets/ui/press_start_2p.ttf")
 static var _tex_panel_src: Texture2D = preload("res://assets/ui/sprout_panel.png")
 static var _tex_btn_big_src: Texture2D = preload("res://assets/ui/sprout_btn_big.png")
 static var _tex_btn_square_src: Texture2D = preload("res://assets/ui/sprout_btn_square.png")
@@ -93,6 +95,83 @@ const PAD_REGIONS: Dictionary = {
 	"dpad": Rect2(0, 128, 16, 16),
 }
 
+## 代码烘焙的按钮小图标：16x16 字符画（X = 实心像素）
+## retry = 转圈箭头；levels = 三块关卡砖；next = 向右箭头
+const PIXEL_ICONS: Dictionary = {
+	"retry": [
+		"................",
+		"....XXXXXXX.....",
+		"..XXXXXXXXXXX...",
+		"..XXX....XXXXX..",
+		".XXX....XXXXXX..",
+		".XXX...XXXXXXXX.",
+		".XX.....XXXXXX..",
+		".XX......XXXX...",
+		".XX.......XX....",
+		".XX.............",
+		".XXX............",
+		".XXXX.......XX..",
+		"..XXXXXXXXXXXX..",
+		"....XXXXXXXX....",
+		"................",
+		"................",
+	],
+	"levels": [
+		"................",
+		".XXXXXX..XXXXXX.",
+		".XXXXXX..XXXXXX.",
+		".XXXXXX..XXXXXX.",
+		".XXXXXX..XXXXXX.",
+		".XXXXXX..XXXXXX.",
+		".XXXXXX..XXXXXX.",
+		"................",
+		"................",
+		"....XXXXXXXX....",
+		"....XXXXXXXX....",
+		"....XXXXXXXX....",
+		"....XXXXXXXX....",
+		"....XXXXXXXX....",
+		"....XXXXXXXX....",
+		"................",
+	],
+	"next": [
+		"................",
+		"................",
+		".........X......",
+		".........XX.....",
+		".........XXX....",
+		".........XXXX...",
+		"..XXXXXXXXXXXX..",
+		"..XXXXXXXXXXXXX.",
+		"..XXXXXXXXXXXXX.",
+		"..XXXXXXXXXXXX..",
+		".........XXXX...",
+		".........XXX....",
+		".........XX.....",
+		".........X......",
+		"................",
+		"................",
+	],
+	"home": [
+		"................",
+		".......XX.......",
+		"......XXXX......",
+		".....XXXXXX.....",
+		"....XXXXXXXX....",
+		"...XXXXXXXXXX...",
+		"..XXXXXXXXXXXX..",
+		".XXXXXXXXXXXXXX.",
+		"...XXXXXXXXXX...",
+		"...XX......XX...",
+		"...XX......XX...",
+		"...XX..XX..XX...",
+		"...XX..XX..XX...",
+		"...XXXXXXXXXX...",
+		"................",
+		"................",
+	],
+}
+
 # ---------- 字体 ----------
 
 ## 配置像素字体（关抗锯齿；字号请用 14 的整数倍保证像素对齐）
@@ -111,12 +190,69 @@ static func label_settings(size: int, color: Color = COL_CREAM, outline_px: int 
 	s.outline_color = COL_OUTLINE
 	return s
 
-## 快捷创建 Label
+## 快捷创建 Label（默认奶油字 + 自动描边：适合草地 / 照片底）
 static func make_label(text: String, size: int, color: Color = COL_CREAM, outline_px: int = -1) -> Label:
 	var label: Label = Label.new()
 	label.text = text
 	label.label_settings = label_settings(size, color, outline_px)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return label
+
+## 奶油面板上的正文：深棕墨色、零描边。
+## 任务：在米色九宫格上保持最高可读性；描边会发脏，一律关掉。
+static func make_panel_label(text: String, size: int = 28, alpha: float = 1.0) -> Label:
+	return make_label(text, size, Color(COL_INK, alpha), 0)
+
+## 副标题 / 次级说明：比正文小一档、墨色压到 0.55，零描边。
+## 任务：交代附属信息（关名、限时、提示标签），绝不能和主标题抢权。
+static func make_subtitle_label(text: String, size: int = 22) -> Label:
+	var label: Label = make_panel_label(text, size, 0.55)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	return label
+
+## 草地上的次级字：奶油字 + 轻描边（只够把字从草地里抬出来）。
+## 任务：不抢 LOGO/主按钮，但必须在场景底上可读。
+static func make_world_caption(text: String, size: int = 22) -> Label:
+	var label: Label = make_label(text, size, Color(COL_CREAM, 0.88), maxi(2, size / 10))
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	return label
+
+## 配置标题字体（Press Start 2P；关抗锯齿保持像素锐利）
+## 该字体按 8x8 网格设计，字号请用 8 的倍数保证像素对齐
+static func prepare_title_font() -> FontFile:
+	_font_title.antialiasing = TextServer.FONT_ANTIALIASING_NONE
+	_font_title.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_DISABLED
+	return _font_title
+
+## 标题级粗像素字（Press Start 2P）。
+## on_panel=true：面板内用实色 + 硬阴影（不用描边，避免奶油底发脏）；
+## on_panel=false：草地/照片底用描边把字从背景里抠出来。
+static func make_title_label(
+	text: String,
+	size: int = 48,
+	color: Color = COL_CREAM,
+	on_panel: bool = false,
+) -> Label:
+	var label: Label = Label.new()
+	var s: LabelSettings = LabelSettings.new()
+	s.font = prepare_title_font()
+	s.font_size = size
+	s.font_color = color
+	var font_px: int = maxi(2, size / 8)
+	if on_panel:
+		# 面板内：零描边 + 1 字体像素硬阴影，形成干净的抬升
+		s.outline_size = 0
+		s.shadow_size = font_px
+		s.shadow_color = Color(COL_OUTLINE, 0.35)
+		s.shadow_offset = Vector2(0, float(font_px))
+	else:
+		s.outline_size = font_px
+		s.outline_color = COL_OUTLINE
+		s.shadow_size = 0
+	label.text = text
+	label.label_settings = s
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	return label
 
 # ---------- 背景与根节点 ----------
@@ -290,10 +426,128 @@ static func make_pad_icon(name: String, px: float = 48.0) -> TextureRect:
 	var region: Rect2 = PAD_REGIONS.get(name, PAD_REGIONS["a"]) as Rect2
 	return _atlas_rect(_tex_pad, region, px)
 
+## 烘焙 PIXEL_ICONS 中的像素图标：按整数倍最近邻放大，颜色可定制
+static func make_button_icon(icon_name: String, icon_scale: int = 2, color: Color = COL_INK) -> Texture2D:
+	var rows: Array = PIXEL_ICONS.get(icon_name, []) as Array
+	var img: Image = Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	for y: int in mini(16, rows.size()):
+		var row: String = str(rows[y])
+		for x: int in mini(16, row.length()):
+			if row[x] == "X":
+				img.set_pixel(x, y, color)
+	img.resize(16 * icon_scale, 16 * icon_scale, Image.INTERPOLATE_NEAREST)
+	return ImageTexture.create_from_image(img)
+
 ## Sprout 图标：见 ICON_REGIONS 键名
 static func make_icon(name: String, px: float = 48.0) -> TextureRect:
 	var region: Rect2 = ICON_REGIONS.get(name, ICON_REGIONS["star_dark"]) as Rect2
 	return _atlas_rect(_tex_icons, region, px)
+
+## 结算星星贴图缓存（键："earned_frames" / "empty"，首次使用时烘焙）
+static var _star_tex_cache: Dictionary = {}
+
+## 闪光扫过动画的对角线阈值（x+y 落在 [阈值, 阈值+2) 的像素被点亮）
+const STAR_SHINE_BANDS: Array[int] = [7, 11, 15, 19]
+## 扫光每帧时长（秒）
+const STAR_SHINE_FRAME_S: float = 0.07
+
+## 结算界面像素金星：以图集 star_cream 的 alpha 为掩膜逐像素烘焙。
+## 描边 / 三段色带 / 高光全部落在 16x16 像素网格上。
+## earned 星带「闪光扫过」帧动画：长停顿后一道斜向高光快速掠过；
+## hold_s 控制停顿时长，三颗星传不同值可错开闪光节奏。
+static func make_pixel_star(earned: bool, px: float = 96.0, hold_s: float = 1.2) -> TextureRect:
+	if not _star_tex_cache.has("earned_frames"):
+		var frames: Array[Texture2D] = [_bake_star_texture(true, -1)]
+		for band: int in STAR_SHINE_BANDS:
+			frames.append(_bake_star_texture(true, band))
+		_star_tex_cache["earned_frames"] = frames
+		_star_tex_cache["empty"] = _bake_star_texture(false, -1)
+
+	var rect: TextureRect = TextureRect.new()
+	# 注意：GDScript 的 as 不支持带元素类型的数组，这里用无类型 Array 取帧
+	var frames: Array = _star_tex_cache["earned_frames"] as Array
+	if earned:
+		rect.texture = frames[0] as Texture2D
+	else:
+		rect.texture = _star_tex_cache["empty"] as Texture2D
+	rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	rect.custom_minimum_size = Vector2(px, px)
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	if earned:
+		# Timer 驱动帧循环：帧 0 停 hold_s，其余扫光帧快速播放
+		var state: Dictionary = {"frame": 0}
+		var timer: Timer = Timer.new()
+		timer.one_shot = true
+		timer.autostart = true
+		timer.wait_time = hold_s
+		rect.add_child(timer)
+		timer.timeout.connect(func() -> void:
+			state["frame"] = (int(state["frame"]) + 1) % frames.size()
+			rect.texture = frames[int(state["frame"])] as Texture2D
+			timer.start(hold_s if int(state["frame"]) == 0 else STAR_SHINE_FRAME_S)
+		)
+	return rect
+
+## 逐像素烘焙星星：earned=金色三段色带+高光；否则为半透明的凹陷空槽。
+## shine_band >= 0 时，把 x+y 落在 [shine_band, shine_band+2) 的实心像素
+## 点亮成近白，形成斜向扫光帧。
+static func _bake_star_texture(earned: bool, shine_band: int = -1) -> Texture2D:
+	# 用图集里奶油星的 alpha 通道当星形掩膜（16x16）
+	var region: Rect2 = ICON_REGIONS["star_cream"] as Rect2
+	var src: Image = _tex_icons.get_image().get_region(Rect2i(region))
+	var mask: Array[bool] = []
+	mask.resize(16 * 16)
+	for my: int in 16:
+		for mx: int in 16:
+			mask[my * 16 + mx] = src.get_pixel(mx, my).a > 0.5
+
+	# 配色：金星三段色带 / 空槽为压暗的凹陷色
+	var col_hi: Color = Color("ffdf6e")      # 顶部亮金
+	var col_mid: Color = Color("f2a93b")     # 中段主金
+	var col_lo: Color = Color("d97e22")      # 底部暗金
+	var col_spark: Color = Color("fff6d8")   # 顶端高光
+	var col_outline: Color = COL_OUTLINE
+	if not earned:
+		col_hi = Color(0.42, 0.32, 0.23, 0.5)
+		col_mid = col_hi
+		col_lo = Color(0.36, 0.27, 0.19, 0.5)
+		col_spark = col_hi
+		col_outline = Color(COL_OUTLINE, 0.55)
+
+	var col_shine: Color = Color("fffbe8")  # 扫光帧的点亮色
+	var img: Image = Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	for py: int in 16:
+		for px_i: int in 16:
+			if _mask_solid(mask, px_i, py):
+				var c: Color = col_mid
+				if py <= 3:
+					c = col_spark  # 顶端尖角打高光
+				elif py <= 6:
+					c = col_hi
+				elif py >= 10:
+					c = col_lo
+				# 斜向扫光带：覆盖在色带之上
+				if shine_band >= 0 and (px_i + py) >= shine_band and (px_i + py) < shine_band + 2:
+					c = col_shine
+				img.set_pixel(px_i, py, c)
+			else:
+				# 8 邻域内有实心像素则画 1px 描边
+				var edge: bool = false
+				for oy: int in range(-1, 2):
+					for ox: int in range(-1, 2):
+						if _mask_solid(mask, px_i + ox, py + oy):
+							edge = true
+				if edge:
+					img.set_pixel(px_i, py, col_outline)
+
+	img.resize(16 * 8, 16 * 8, Image.INTERPOLATE_NEAREST)
+	return ImageTexture.create_from_image(img)
+
+## 掩膜内是否为实心像素（越界视为空，供描边膨胀使用）
+static func _mask_solid(mask: Array[bool], ix: int, iy: int) -> bool:
+	return ix >= 0 and ix < 16 and iy >= 0 and iy < 16 and mask[iy * 16 + ix]
 
 ## 红心贴图：state 0=满 1=半 2=空
 static func heart_texture(state: int) -> AtlasTexture:

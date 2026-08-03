@@ -30,6 +30,8 @@ signal joy_hotplug(device_id: int, connected: bool)
 var _slots: Array[InputSource] = []
 ## 输入是否被冻结（结算 / 重生过渡时）
 var input_frozen: bool = false
+## 每个槽位的输入增益（0～1）；第 3 关“输入缩减”时段由关卡驱动，平时恒为 1.0
+var slot_gains: Array[float] = [1.0, 1.0]
 
 func _ready() -> void:
 	_slots = [InputSource.new(), InputSource.new()]
@@ -37,19 +39,24 @@ func _ready() -> void:
 
 # ---------- 游戏内读取 ----------
 
-## 读取某槽位的移动向量（归一化，死区已处理）；空槽位恒为零
+## 读取某槽位的移动向量（归一化，死区已处理，乘以槽位增益）；空槽位恒为零
 func get_move_vector(slot: int) -> Vector2:
 	if input_frozen or slot < 0 or slot >= _slots.size():
 		return Vector2.ZERO
 	var src: InputSource = _slots[slot]
+	var raw: Vector2 = Vector2.ZERO
 	match src.kind:
 		SourceKind.KEYBOARD_WASD:
-			return Input.get_vector("p1_left", "p1_right", "p1_up", "p1_down")
+			raw = Input.get_vector("p1_left", "p1_right", "p1_up", "p1_down")
 		SourceKind.KEYBOARD_ARROWS:
-			return Input.get_vector("p2_left", "p2_right", "p2_up", "p2_down")
+			raw = Input.get_vector("p2_left", "p2_right", "p2_up", "p2_down")
 		SourceKind.JOYPAD:
-			return _read_joypad(src.joy_id)
-	return Vector2.ZERO
+			raw = _read_joypad(src.joy_id)
+	return raw * clampf(slot_gains[slot], 0.0, 1.0)
+
+## 重置全部槽位增益为 1（关卡进出时调用，防止残留到其他场景）
+func reset_gains() -> void:
+	slot_gains = [1.0, 1.0]
 
 ## 读取手柄左摇杆 / 十字键，合成一个方向向量
 func _read_joypad(joy_id: int) -> Vector2:

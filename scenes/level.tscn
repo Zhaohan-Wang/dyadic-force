@@ -33,10 +33,13 @@ island_w_px = 480
 island_h_px = 288
 
 [node name="WaterLayer" type="TileMapLayer" parent="."]
+z_index = -2
 
 [node name="GroundLayer" type="TileMapLayer" parent="."]
+z_index = -2
 
 [node name="DecorLayer" type="TileMapLayer" parent="."]
+z_index = -2
 
 [node name="World" type="Node2D" parent="."]
 y_sort_enabled = true
@@ -47,8 +50,8 @@ mass = 1.0
 physics_material_override = SubResource("PhysicsMaterial_ball")
 gravity_scale = 0.0
 continuous_cd = 1
-linear_damp = 1.0
-angular_damp = 1.5
+linear_damp = 0.95
+angular_damp = 1.4
 collision_layer = 1
 collision_mask = 1
 script = ExtResource("2_ball")

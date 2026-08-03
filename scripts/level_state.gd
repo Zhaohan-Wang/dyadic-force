@@ -88,17 +88,17 @@ func revive() -> void:
 	refill_hp()
 	_set_phase(Phase.RUNNING)
 
-## 过关并计算星级
-func finish(remaining_hp_ratio: float) -> void:
-	# 1 星通关；剩余时间/血量加星
+## 过关并计算星级：通关 1 星 + 满血 1 星 + 剩余时间充足 1 星；
+## 新手教程（force_full）恒定 3 星，不给新玩家挫败感。
+func finish(bonus_full_hp: bool, bonus_time: bool, force_full: bool) -> void:
 	stars = 1
-	if timed and time_left > 15.0:
+	if bonus_full_hp:
 		stars += 1
-	elif not timed and elapsed < 90.0:
+	if bonus_time:
 		stars += 1
-	if remaining_hp_ratio > 0.5:
-		stars += 1
-	stars = mini(3, stars)
+	if force_full:
+		stars = 3
+	stars = clampi(stars, 1, 3)
 	stars_changed.emit(stars)
 	_set_phase(Phase.FINISHED)
 

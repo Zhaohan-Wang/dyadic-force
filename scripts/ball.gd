@@ -19,12 +19,24 @@ extends RigidBody2D
 ##   传给 shader；球贴图子节点每帧反向旋转，保证光照方向恒定、
 ##   自转完全由 shader 的球面纹理体现。
 
-## 单只猴子推力产生的加速度（像素/秒²）
-@export var push_force: float = 220.0
+## 单只猴子推力产生的加速度（像素/秒²）；两人同向时两股力自然相加
+@export var push_force: float = 150.0
 ## 单只猴子全力切向发力时的角加速度（弧度/秒²）
-@export var spin_accel: float = 4.5
+@export var spin_accel: float = 3.4
 ## 滚动摩擦产生的恒定减速度（像素/秒²）
 @export var friction_decel: float = 40.0
+## 闲置猴子脚下接触点的库仑摩擦（像素/秒²）
+@export var idle_contact_friction: float = 65.0
+## 闲置接触点的黏性阻尼系数（1/秒）；速度越快拖力越强
+@export var idle_contact_drag: float = 1.35
+## 低于该接触速度时逐渐撤掉库仑摩擦，避免静止附近正负翻转
+@export var idle_contact_soft_speed: float = 12.0
+## 闲置猴子抓紧地面的响应速度（1/秒）
+@export var idle_grip_engage: float = 1.0
+## 重新操作后松开阻力的响应速度（1/秒）
+@export var idle_grip_release: float = 12.0
+## 两人都松手随惯性滑行时，只保留少量乘员接触阻力
+@export var coasting_grip_factor: float = 0.08
 ## 球半径（像素），需与碰撞体半径一致
 @export var ball_radius: float = 44.0
 ## 球贴图边长（虚拟像素数），决定像素颗粒粗细
@@ -41,6 +53,8 @@ var _orientation: Basis = Basis.IDENTITY
 var _monkeys: Array[Monkey] = []
 ## 上一物理帧线速度，用于检测碰撞冲击
 var _prev_velocity: Vector2 = Vector2.ZERO
+## 每只猴子当前脚下抓地权重（0～1），同时驱动物理与拖拽姿态
+var _idle_resistances: Array[float] = []
 
 @onready var _sprite: Sprite2D = $BallSprite
 @onready var _shadow: Sprite2D = $Shadow
@@ -62,15 +76,30 @@ func _ready() -> void:
 	for child: Node in get_children():
 		if child is Monkey:
 			_monkeys.append(child as Monkey)
+			_idle_resistances.append(0.0)
 	_prev_velocity = linear_velocity
 	_push_orientation_to_shader()
 
 func _physics_process(delta: float) -> void:
-	# —— 猴子发力：每只猴子的输入 → 推力 + 扭矩 ——
+	# —— 先收集输入与脚下抓地状态 ——
+	var inputs: Array[Vector2] = []
+	var active_count: int = 0
+	for i: int in _monkeys.size():
+		var dir: Vector2 = _monkeys[i].read_input()
+		# 小于阈值的摇杆漂移视为松手；松手意味着猴子脚下开始抓地
+		if dir.length() < 0.18:
+			dir = Vector2.ZERO
+		else:
+			active_count += 1
+		inputs.append(dir)
+		_update_idle_resistance(i, dir == Vector2.ZERO, delta)
+
+	# —— 每只猴子的输入 → 推力 + 扭矩 ——
 	var total_input: Vector2 = Vector2.ZERO
 	var total_torque_input: float = 0.0
-	for monkey: Monkey in _monkeys:
-		var dir: Vector2 = monkey.read_input()
+	for i: int in _monkeys.size():
+		var monkey: Monkey = _monkeys[i]
+		var dir: Vector2 = inputs[i]
 		if dir == Vector2.ZERO:
 			continue
 		total_input += dir
@@ -81,6 +110,11 @@ func _physics_process(delta: float) -> void:
 		var torque_factor: float = anchor_dir.cross(dir)
 		total_torque_input += torque_factor
 		apply_torque(torque_factor * spin_accel * inertia)
+
+	# 有队友发力时，闲置猴子在轮缘接触点形成完整拖拽阻力；
+	# 两人都松手时一起随球滑行，只保留少量乘员接触阻力。
+	# apply_force(force, offset) 会自然同时影响平移和旋转，不需要隐藏倍率。
+	_apply_idle_contact_forces(delta, active_count > 0)
 
 	# —— 线性滚动摩擦：与速度方向相反的恒定减速度 ——
 	var velocity: Vector2 = linear_velocity
@@ -115,13 +149,71 @@ func _physics_process(delta: float) -> void:
 		impacted.emit(impact)
 	_prev_velocity = linear_velocity
 
+## 更新单只猴子的脚下抓地：松手后逐渐抓紧，重新操作时快速释放。
+## 该权重同时显示为拖拽姿态，因此玩家能看到阻力来源。
+func _update_idle_resistance(index: int, idle: bool, delta: float) -> void:
+	var target: float = 1.0 if idle else 0.0
+	var response: float = idle_grip_engage if idle else idle_grip_release
+	_idle_resistances[index] = move_toward(
+		_idle_resistances[index],
+		target,
+		response * delta
+	)
+	_monkeys[index].set_idle_resistance(_idle_resistances[index])
+
+## 在每只闲置猴子的轮缘接触点计算点速度并施加反向摩擦。
+## 接触点速度 = 球心线速度 + 角速度 × 半径；因此一股力自然阻碍平移与自转。
+func _apply_idle_contact_forces(delta: float, partner_is_pushing: bool) -> void:
+	for i: int in _monkeys.size():
+		var grip: float = _idle_resistances[i]
+		if not partner_is_pushing:
+			grip *= coasting_grip_factor
+		if grip <= 0.001:
+			continue
+		var offset: Vector2 = _monkeys[i].global_position - global_position
+		var rotational_velocity: Vector2 = Vector2(-offset.y, offset.x) * angular_velocity
+		var contact_velocity: Vector2 = linear_velocity + rotational_velocity
+		var contact_speed: float = contact_velocity.length()
+		if contact_speed <= 0.01:
+			continue
+		var normal: Vector2 = contact_velocity / contact_speed
+
+		# 静止附近平滑撤掉恒定摩擦，只保留黏性阻尼。
+		# 否则恒定摩擦会跨过零点，让角速度每帧正负翻转。
+		var static_mix: float = clampf(
+			contact_speed / maxf(idle_contact_soft_speed, 0.01),
+			0.0,
+			1.0
+		)
+		var desired_force: float = (
+			idle_contact_friction * static_mix
+			+ contact_speed * idle_contact_drag
+		) * grip * mass
+
+		# 接触点有效质量：
+		# 1/m_eff = 1/m + (r×n)²/I。
+		# 用它算“恰好把该方向点速度降到零”的最大力，防止过度修正造成抖动。
+		var lever: float = offset.cross(normal)
+		var inverse_effective_mass: float = (
+			1.0 / maxf(mass, 0.001)
+			+ lever * lever / maxf(inertia, 0.001)
+		)
+		var effective_mass: float = 1.0 / inverse_effective_mass
+		var max_stopping_force: float = (
+			contact_speed * effective_mass / maxf(delta, 0.001)
+		)
+		var force_magnitude: float = minf(desired_force, max_stopping_force)
+		var contact_force: Vector2 = -normal * force_magnitude
+		apply_force(contact_force, offset)
+
 func _process(_delta: float) -> void:
 	# 球贴图与阴影保持直立：自转的视觉效果完全交给 shader 的球面纹理，
 	# 这样光照方向/投影位置不会跟着刚体转（光源应固定在世界里）。
 	_sprite.rotation = -rotation
 	_shadow.rotation = -rotation
-	# 阴影偏移随半径略放大，保持与球同一光源逻辑（正下方投影）
-	_shadow.position = Vector2(0.0, ball_radius * 0.5).rotated(-rotation)
+	# 光源在左上（与球 shader light_dir 一致）→ 影落右下；
+	# 略偏右下而不是正下方，读路时影不会糊在球心正南挡通道。
+	_shadow.position = Vector2(ball_radius * 0.16, ball_radius * 0.48).rotated(-rotation)
 
 ## 把当前姿态矩阵传给球的 shader（mat3 uniform）
 func _push_orientation_to_shader() -> void:

@@ -44,6 +44,11 @@ const DRAG_SPIN: float = 1.2
 var input_vector: Vector2 = Vector2.ZERO
 
 var _behind: bool = false        # 当前是否处于球的后方（绘制在球贴图之下）
+## 闲置系绳阻力权重（由 PixelBall 注入，0=自由 1=完全拖拽）
+var _idle_resistance: float = 0.0
+## 经过阻尼滤波的拖拽视觉偏移与倾角，隔离物理帧中的微小速度噪声
+var _smoothed_drag_offset: Vector2 = Vector2.ZERO
+var _smoothed_drag_lean: float = 0.0
 var _visual: Node2D              # 视觉容器（阴影/动画/标签/箭头都挂在这里）
 var _shadow: Sprite2D            # 脚下椭圆阴影
 var _anim: AnimatedSprite2D      # 猴子动画
@@ -82,6 +87,10 @@ func read_input() -> Vector2:
 		action_prefix + "_up", action_prefix + "_down"
 	)
 
+## 球设置闲置阻力，用于把物理状态同步成可读的拖拽姿态。
+func set_idle_resistance(value: float) -> void:
+	_idle_resistance = clampf(value, 0.0, 1.0)
+
 func _physics_process(_delta: float) -> void:
 	input_vector = read_input()
 	# —— 动画三态：主动跑 / 被球拖着走 / 待机 ——
@@ -92,7 +101,11 @@ func _physics_process(_delta: float) -> void:
 			_anim.play(&"run")
 		if absf(input_vector.x) > 0.05:
 			_anim.flip_h = input_vector.x < 0.0
-	elif ball_speed > DRAG_SPEED or ball_spin > DRAG_SPIN:
+	elif (
+		ball_speed > DRAG_SPEED
+		or ball_spin > DRAG_SPIN
+		or (_idle_resistance > 0.15 and (ball_speed > 8.0 or ball_spin > 0.15))
+	):
 		if _anim.animation != &"drag":
 			_anim.play(&"drag")
 		if absf(_ball.linear_velocity.x) > 20.0:
@@ -108,8 +121,31 @@ func _process(delta: float) -> void:
 	if off.y < 0.0:
 		vis.y *= FAR_SIDE_SQUASH
 	vis.y += VISUAL_Y_BIAS  # 正对端点时整体略下移，避免看起来飘在球沿上方
+
+	# 先计算拖拽目标，再用指数阻尼过滤；低速符号翻转不会直接传到角色画面。
+	var target_drag_offset: Vector2 = Vector2.ZERO
+	var target_drag_lean: float = 0.0
+	if _idle_resistance > 0.001 and _ball.linear_velocity.length() > 3.0:
+		var trail_dir: Vector2 = -_ball.linear_velocity.normalized()
+		target_drag_offset = trail_dir * 4.0 * _idle_resistance
+		target_drag_lean = clampf(
+			-_ball.linear_velocity.x / 180.0,
+			-1.0,
+			1.0
+		) * 0.12 * _idle_resistance
+	var visual_response: float = 1.0 - exp(-12.0 * delta)
+	_smoothed_drag_offset = _smoothed_drag_offset.lerp(
+		target_drag_offset,
+		visual_response
+	)
+	_smoothed_drag_lean = lerpf(
+		_smoothed_drag_lean,
+		target_drag_lean,
+		visual_response
+	)
+	vis += _smoothed_drag_offset
 	_visual.global_position = _ball.global_position + vis
-	_visual.global_rotation = 0.0  # 抵消球的自转，保持直立
+	_visual.global_rotation = _smoothed_drag_lean
 
 	# —— 前后遮挡：远侧移到球贴图之前绘制，近侧移回最上层（带滞回）——
 	# 球的子节点顺序：Shadow(0)、BallSprite(1)、猴子们、CollisionShape2D
@@ -120,9 +156,9 @@ func _process(delta: float) -> void:
 		_behind = false
 		_ball.move_child(self, _ball.get_child_count() - 1)  # 移回最上层
 
-	# —— 箭头：按下方向键时指向该方向，弹簧弹出；松开缩回后隐藏 ——
+	# —— 箭头：主轴吸附后再指向，避免"竖走却出横箭头" ——
 	if input_vector != Vector2.ZERO:
-		var dir: Vector2 = input_vector.normalized()
+		var dir: Vector2 = _snap_arrow_dir(input_vector)
 		_arrow.visible = true
 		_arrow.position = BODY_CENTER + dir * ARROW_ORBIT
 		_arrow.rotation = dir.angle()
@@ -134,19 +170,34 @@ func _process(delta: float) -> void:
 	if input_vector == Vector2.ZERO and arrow_scale.length() < 0.06:
 		_arrow.visible = false
 
-## 脚下的小椭圆阴影：与球影同一套 shader，同为正下方投影（同一光源逻辑）
+## 主轴吸附：一轴明显占优时锁到纯水平/纯垂直；两轴接近才保留对角。
+## 理由：像素箭头是离散方向语言，斜噪声会让玩家误判自己在推的方向。
+func _snap_arrow_dir(raw: Vector2) -> Vector2:
+	var ax: float = absf(raw.x)
+	var ay: float = absf(raw.y)
+	if ax < 0.001 and ay < 0.001:
+		return Vector2.RIGHT
+	if ax > ay * 1.25:
+		return Vector2(signf(raw.x), 0.0)
+	if ay > ax * 1.25:
+		return Vector2(0.0, signf(raw.y))
+	return Vector2(signf(raw.x), signf(raw.y)).normalized()
+
+## 脚下椭圆阴影：与球同一光源（左上 → 影落右下），压扁贴地，不挡读路
 func _build_shadow() -> void:
 	_shadow = Sprite2D.new()
+	_shadow.name = "MonkeyShadow"
 	var img: Image = Image.create(20, 20, false, Image.FORMAT_RGBA8)
 	img.fill(Color.WHITE)
 	_shadow.texture = ImageTexture.create_from_image(img)
 	var mat: ShaderMaterial = ShaderMaterial.new()
 	mat.shader = _shadow_shader
 	mat.set_shader_parameter("pixel_count", 20.0)
-	mat.set_shader_parameter("shadow_color", Color(0.16, 0.15, 0.10, 0.30))
+	mat.set_shader_parameter("shadow_color", Color(0.16, 0.15, 0.10, 0.28))
 	_shadow.material = mat
-	_shadow.scale = Vector2(1.0, 0.5)  # 压成椭圆
-	_shadow.position = Vector2.ZERO    # 椭圆中心 = 脚底
+	_shadow.scale = Vector2(1.05, 0.48)
+	# 脚底略偏右下 = 光源在左上时的落点，避免影心压在角色正中显得飘
+	_shadow.position = Vector2(2.0, 1.0)
 	_visual.add_child(_shadow)
 
 ## 用三张精灵表（Idle 18 帧 / Run 8 帧 / Jump 4 帧，均为 32x32）构建动画

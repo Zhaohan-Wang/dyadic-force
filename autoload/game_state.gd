@@ -21,6 +21,24 @@ var cleared_levels: PackedStringArray = PackedStringArray()
 const SETTINGS_PATH: String = "user://settings.cfg"
 const PROGRESS_PATH: String = "user://progress.cfg"
 
+## 关卡推进顺序（选关列表与结算"下一关"共用）
+const LEVEL_ORDER: PackedStringArray = [
+	"res://levels/practice.tres",
+	"res://levels/level_1.tres",
+	"res://levels/level_2.tres",
+	"res://levels/level_3.tres",
+]
+
+## 按 level_id 查找下一关资源路径；已是最后一关返回空串
+func next_level_path(level_id: String) -> String:
+	for i: int in LEVEL_ORDER.size():
+		var def: LevelDef = load(LEVEL_ORDER[i]) as LevelDef
+		if def != null and def.level_id == level_id:
+			if i + 1 < LEVEL_ORDER.size():
+				return LEVEL_ORDER[i + 1]
+			return ""
+	return ""
+
 func _ready() -> void:
 	load_settings()
 	load_progress()
