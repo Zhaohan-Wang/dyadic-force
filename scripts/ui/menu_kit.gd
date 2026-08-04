@@ -25,6 +25,10 @@ const COL_GRASS_B: Color = Color("6c9c42")
 static var _font: FontFile = preload("res://assets/ui/pixel_font_sprout.ttf")
 ## 标题专用粗像素字体（Press Start 2P，SIL OFL 授权，8x8 网格设计）
 static var _font_title: FontFile = preload("res://assets/ui/press_start_2p.ttf")
+## 中文像素字体（IPix 12px）；中文正文与中文按钮统一从这里取字形。
+static var _font_cjk: FontFile = preload("res://assets/ui/ipix_12px.ttf")
+## 品牌副标题专用字重变体：中英文都用 IPix，并通过 embolden 增厚笔画。
+static var _font_subtitle_bold: FontVariation = null
 static var _tex_panel_src: Texture2D = preload("res://assets/ui/sprout_panel.png")
 static var _tex_btn_big_src: Texture2D = preload("res://assets/ui/sprout_btn_big.png")
 static var _tex_btn_square_src: Texture2D = preload("res://assets/ui/sprout_btn_square.png")
@@ -180,10 +184,43 @@ static func prepare_font() -> FontFile:
 	_font.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_DISABLED
 	return _font
 
+## 配置中文像素字体。
+static func prepare_cjk_font() -> FontFile:
+	_font_cjk.antialiasing = TextServer.FONT_ANTIALIASING_NONE
+	_font_cjk.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_DISABLED
+	return _font_cjk
+
+## 副标题专用粗体：避免细笔画被深色描边吞掉。
+static func prepare_subtitle_font() -> FontVariation:
+	if _font_subtitle_bold == null:
+		_font_subtitle_bold = FontVariation.new()
+		_font_subtitle_bold.base_font = prepare_cjk_font()
+		_font_subtitle_bold.variation_embolden = 1.15
+	return _font_subtitle_bold
+
+## 判断文本是否包含中日韩统一表意文字。
+static func _contains_cjk(text: String) -> bool:
+	for index: int in text.length():
+		var codepoint: int = text.unicode_at(index)
+		if codepoint >= 0x3400 and codepoint <= 0x9FFF:
+			return true
+	return false
+
+## 中文统一使用加粗 IPix；英文正文和英文大标题保留原来的像素字体。
+static func _font_for_text(text: String, title: bool = false) -> Font:
+	if _contains_cjk(text):
+		return prepare_subtitle_font()
+	return prepare_title_font() if title else prepare_font()
+
 ## 创建 LabelSettings；outline_px<0 时按字号自动配描边
-static func label_settings(size: int, color: Color = COL_CREAM, outline_px: int = -1) -> LabelSettings:
+static func label_settings(
+	size: int,
+	color: Color = COL_CREAM,
+	outline_px: int = -1,
+	text: String = "",
+) -> LabelSettings:
 	var s: LabelSettings = LabelSettings.new()
-	s.font = prepare_font()
+	s.font = _font_for_text(text)
 	s.font_size = size
 	s.font_color = color
 	s.outline_size = (size / 7) if outline_px < 0 else outline_px
@@ -194,9 +231,16 @@ static func label_settings(size: int, color: Color = COL_CREAM, outline_px: int 
 static func make_label(text: String, size: int, color: Color = COL_CREAM, outline_px: int = -1) -> Label:
 	var label: Label = Label.new()
 	label.text = text
-	label.label_settings = label_settings(size, color, outline_px)
+	label.label_settings = label_settings(size, color, outline_px, text)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return label
+
+## 更新动态 Label 文本并同步切换中英文字体。
+## 空文本创建的标签若直接写 .text，会继续使用拉丁字体并触发不一致的系统回退。
+static func set_label_text(label: Label, text: String, title: bool = false) -> void:
+	label.text = text
+	if label.label_settings != null:
+		label.label_settings.font = _font_for_text(text, title)
 
 ## 奶油面板上的正文：深棕墨色、零描边。
 ## 任务：在米色九宫格上保持最高可读性；描边会发脏，一律关掉。
@@ -210,11 +254,88 @@ static func make_subtitle_label(text: String, size: int = 22) -> Label:
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	return label
 
-## 草地上的次级字：奶油字 + 轻描边（只够把字从草地里抬出来）。
-## 任务：不抢 LOGO/主按钮，但必须在场景底上可读。
-static func make_world_caption(text: String, size: int = 22) -> Label:
-	var label: Label = make_label(text, size, Color(COL_CREAM, 0.88), maxi(2, size / 10))
+## 草地/照片/关卡世界上的次级字。
+## 禁止使用 Godot outline_size；统一走连续像素扩张描边。
+static func make_world_caption(text: String, size: int = 22) -> Control:
+	return make_pixel_outline_text(text, size, Color(COL_CREAM, 0.92), 2)
+
+## 场景背景上的任意文字：以方形核扩张深色字形，再叠加前景字面。
+## 返回 Control；动态更新必须使用 set_pixel_outline_text/color。
+static func make_pixel_outline_text(
+	text: String,
+	size: int,
+	color: Color = COL_CREAM,
+	outline_radius: int = 2,
+) -> Control:
+	var root: Control = Control.new()
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var outline_settings: LabelSettings = _pixel_outline_settings(
+		text, size, Color(COL_OUTLINE, 0.96)
+	)
+	var radius: int = maxi(1, outline_radius)
+	for offset_y: int in range(-radius, radius + 1):
+		for offset_x: int in range(-radius, radius + 1):
+			if offset_x == 0 and offset_y == 0:
+				continue
+			root.add_child(_pixel_outline_layer(
+				text,
+				outline_settings,
+				Vector2(float(offset_x), float(offset_y)),
+				false,
+			))
+	var face_settings: LabelSettings = _pixel_outline_settings(text, size, color)
+	root.add_child(_pixel_outline_layer(text, face_settings, Vector2.ZERO, true))
+	return root
+
+## 更新多层像素描边文字的内容。
+static func set_pixel_outline_text(root: Control, text: String) -> void:
+	for child: Node in root.get_children():
+		var layer: Label = child as Label
+		if layer != null:
+			layer.text = text
+
+## 更新多层像素描边文字的前景颜色，不改变深色外轮廓。
+static func set_pixel_outline_color(root: Control, color: Color) -> void:
+	var face: Label = root.get_node_or_null("Face") as Label
+	if face != null:
+		face.label_settings.font_color = color
+
+## 标题 LOGO 下方的品牌副标题。
+## 不使用 FontVariation 的 outline_size：关闭抗锯齿时它会在细笔画转角漏边。
+## 这里以 3px 方形核扩张深色字形，再叠加奶油色前景，得到连续像素描边。
+static func make_brand_subtitle(text: String, size: int = 44) -> Control:
+	return make_pixel_outline_text(text, size, COL_CREAM, 3)
+
+## 创建无描边、无阴影的世界文字字面设置。
+static func _pixel_outline_settings(text: String, size: int, color: Color) -> LabelSettings:
+	var settings: LabelSettings = LabelSettings.new()
+	settings.font = _font_for_text(text)
+	settings.font_size = size
+	settings.font_color = color
+	settings.outline_size = 0
+	settings.shadow_size = 0
+	return settings
+
+## 创建一层铺满父容器的字形，用偏移叠层形成像素描边。
+static func _pixel_outline_layer(
+	text: String,
+	settings: LabelSettings,
+	offset: Vector2,
+	is_face: bool,
+) -> Label:
+	var label: Label = Label.new()
+	if is_face:
+		label.name = "Face"
+	label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	label.offset_left = offset.x
+	label.offset_top = offset.y
+	label.offset_right = offset.x
+	label.offset_bottom = offset.y
+	label.text = text
+	label.label_settings = settings
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	return label
 
 ## 配置标题字体（Press Start 2P；关抗锯齿保持像素锐利）
@@ -235,7 +356,7 @@ static func make_title_label(
 ) -> Label:
 	var label: Label = Label.new()
 	var s: LabelSettings = LabelSettings.new()
-	s.font = prepare_title_font()
+	s.font = _font_for_text(text, true)
 	s.font_size = size
 	s.font_color = color
 	var font_px: int = maxi(2, size / 8)
@@ -369,7 +490,7 @@ static func make_big_button(text: String, font_px: int = 28, min_size: Vector2 =
 	btn.add_theme_stylebox_override("focus", _btn_stylebox(_tex_btn_normal))
 	btn.add_theme_stylebox_override("pressed", _btn_stylebox(_tex_btn_pressed))
 	btn.add_theme_stylebox_override("disabled", _btn_stylebox(_tex_btn_pressed))
-	btn.add_theme_font_override("font", prepare_font())
+	btn.add_theme_font_override("font", _font_for_text(text))
 	btn.add_theme_font_size_override("font_size", font_px)
 	btn.add_theme_color_override("font_color", COL_INK)
 	btn.add_theme_color_override("font_hover_color", COL_ACCENT)
@@ -412,19 +533,73 @@ static func _atlas_rect(tex: Texture2D, region: Rect2, px: float) -> TextureRect
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return rect
 
-## 键帽图标："W"~"Z" 单字母，或 "UP"/"LEFT"/"DOWN"/"RIGHT"/"ESC"/"DEL"
-static func make_key_icon(key: String, px: float = 48.0) -> TextureRect:
+## 键帽图标：图集内特殊键或单字母；ENTER 等长键使用代码绘制键帽。
+static func make_key_icon(key: String, px: float = 48.0) -> Control:
 	if SYMBOL_KEY_REGIONS.has(key):
 		var region: Rect2 = SYMBOL_KEY_REGIONS[key] as Rect2
 		return _atlas_rect(_tex_kb_symbols, region, px)
+	if key.length() != 1:
+		return _make_text_key_icon(key, px)
 	var idx: int = key.unicode_at(0) - 65  # 'A'=65，字母表按行排列
 	idx = clampi(idx, 0, 25)
 	return _atlas_rect(_tex_kb_keys, Rect2(0, idx * 16, 16, 16), px)
+
+## 为图集中不存在的长键绘制统一像素键帽。
+static func _make_text_key_icon(key: String, px: float) -> PanelContainer:
+	var panel: PanelContainer = PanelContainer.new()
+	panel.custom_minimum_size = Vector2(px * 1.9, px)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style: StyleBoxFlat = StyleBoxFlat.new()
+	style.bg_color = COL_CREAM
+	style.border_color = COL_OUTLINE
+	style.set_border_width_all(maxi(2, int(px / 12.0)))
+	style.set_corner_radius_all(maxi(3, int(px / 10.0)))
+	panel.add_theme_stylebox_override("panel", style)
+	var label: Label = make_panel_label(key, maxi(12, int(px * 0.34)))
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	panel.add_child(label)
+	return panel
 
 ## 手柄键图标："a" / "b" / "dpad"
 static func make_pad_icon(name: String, px: float = 48.0) -> TextureRect:
 	var region: Rect2 = PAD_REGIONS.get(name, PAD_REGIONS["a"]) as Rect2
 	return _atlas_rect(_tex_pad, region, px)
+
+## 按当前设备组合生成一行操作提示。
+## 纯键盘/纯手柄只显示对应图标；混合输入使用“/”明确分隔两组图标。
+static func make_device_hint_row(
+	key_names: Array[String],
+	pad_names: Array[String],
+	caption: String,
+	px: float = 44.0,
+	profile: InputHub.SessionProfile = InputHub.SessionProfile.UNKNOWN,
+) -> HBoxContainer:
+	var resolved: InputHub.SessionProfile = profile
+	if resolved == InputHub.SessionProfile.UNKNOWN:
+		resolved = InputHub.menu_profile()
+	var row: HBoxContainer = HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 10)
+	var show_keyboard: bool = resolved in [
+		InputHub.SessionProfile.KEYBOARD_ONLY,
+		InputHub.SessionProfile.MIXED,
+	]
+	var show_gamepad: bool = resolved in [
+		InputHub.SessionProfile.GAMEPAD_ONLY,
+		InputHub.SessionProfile.MIXED,
+	]
+	if show_keyboard:
+		for key_name: String in key_names:
+			row.add_child(make_key_icon(key_name, px))
+	if show_keyboard and show_gamepad:
+		row.add_child(make_world_caption("/", maxi(22, int(px * 0.62))))
+	if show_gamepad:
+		for pad_name: String in pad_names:
+			row.add_child(make_pad_icon(pad_name, px))
+	if caption != "":
+		row.add_child(make_world_caption(caption, maxi(20, int(px * 0.56))))
+	return row
 
 ## 烘焙 PIXEL_ICONS 中的像素图标：按整数倍最近邻放大，颜色可定制
 static func make_button_icon(icon_name: String, icon_scale: int = 2, color: Color = COL_INK) -> Texture2D:

@@ -147,6 +147,17 @@ func _build() -> void:
 	add_child(MenuKit.make_grass_bg())
 	add_child(MenuKit.make_dim_overlay(0.5))
 
+	# 左上角统一展示键盘与手柄返回方式。
+	var back_row: HBoxContainer = MenuKit.make_device_hint_row(
+		["ESC"],
+		["b"],
+		GameState.ui("选关", "LEVELS"),
+		44.0,
+		InputHub.session_profile(),
+	)
+	back_row.position = Vector2(40, 36)
+	add_child(back_row)
+
 	var result: Dictionary = GameState.last_result
 	var success: bool = bool(result.get("success", false))
 	var stars: int = int(result.get("stars", 0))
@@ -161,8 +172,8 @@ func _build() -> void:
 	map.goal_p = result.get("goal", Vector2.ZERO) as Vector2
 	var map_height: float = map.recommended_height(692.0)
 
-	# 固定内容约 500px，路线图按 180～300px 自适应；不再用 1000px 大空壳。
-	var panel_height: float = clampf(500.0 + map_height, 650.0, 780.0)
+	# 多出团队力度行后略增高；路线图仍按内容自适应。
+	var panel_height: float = clampf(560.0 + map_height, 700.0, 900.0)
 	var panel_size: Vector2 = Vector2(780.0, panel_height)
 	var panel: NinePatchRect = MenuKit.make_panel(panel_size)
 	panel.set_anchors_preset(Control.PRESET_CENTER)
@@ -182,7 +193,9 @@ func _build() -> void:
 
 	# ---- 主标题：结果口号，面板内强调色 + 硬阴影 ----
 	var title: Label = MenuKit.make_title_label(
-		"LEVEL CLEAR!" if success else "TIME'S UP!",
+		GameState.ui("通关！", "LEVEL CLEAR!")
+			if success
+			else GameState.ui("时间到！", "TIME'S UP!"),
 		48,
 		MenuKit.COL_ACCENT if success else MenuKit.COL_DANGER,
 		true,
@@ -191,8 +204,8 @@ func _build() -> void:
 
 	# ---- 副标题：关名只负责定位，小一档墨色，零描边，绝不抢主标题 ----
 	var name_label: Label = MenuKit.make_subtitle_label(
-		str(result.get("level_name", "")).to_upper(),
-		22,
+		GameState.localize_content(str(result.get("level_name", ""))),
+		26,
 	)
 	box.add_child(name_label)
 
@@ -220,13 +233,33 @@ func _build() -> void:
 	# ---- 数据行 ----
 	var elapsed: float = float(result.get("elapsed", 0.0))
 	var t: int = int(floor(elapsed))
-	box.add_child(_make_stat_row("TIME", "%02d:%02d" % [t / 60, t % 60]))
+	box.add_child(_make_stat_row(GameState.ui("用时", "TIME"), "%02d:%02d" % [t / 60, t % 60]))
 	var hp: float = float(result.get("hp", 0.0))
 	var max_hp: float = float(result.get("max_hp", 100.0))
-	box.add_child(_make_stat_row("HEARTS", "%d / %d" % [int(round(hp)), int(round(max_hp))]))
+	box.add_child(_make_stat_row(
+		GameState.ui("生命", "HEARTS"), "%d / %d" % [int(round(hp)), int(round(max_hp))]
+	))
 	var hit_count: int = (result.get("hits", PackedVector2Array()) as PackedVector2Array).size()
-	box.add_child(_make_stat_row("BUMPS", str(hit_count)))
-	box.add_child(_make_stat_row("RIDE", _stability_text(hit_count)))
+	box.add_child(_make_stat_row(GameState.ui("碰撞", "BUMPS"), str(hit_count)))
+	box.add_child(_make_stat_row(GameState.ui("稳定性", "RIDE"), _stability_text(hit_count)))
+	# 团队级力度指标（不展示单人贡献）
+	var avg_force: float = float(result.get("avg_force", 0.0))
+	var full_ratio: float = float(result.get("full_push_ratio", 0.0))
+	var fine_ratio: float = float(result.get("fine_control_ratio", 0.0))
+	box.add_child(_make_stat_row(GameState.ui("平均力度", "AVG FORCE"), "%.2f" % avg_force))
+	box.add_child(_make_stat_row(
+		GameState.ui("满推比例", "FULL PUSH"), "%d%%" % int(round(full_ratio * 100.0))
+	))
+	box.add_child(_make_stat_row(
+		GameState.ui("精细控制", "FINE CTRL"), "%d%%" % int(round(fine_ratio * 100.0))
+	))
+	var condition_key: String = str(result.get("experiment_condition", "baseline"))
+	var condition: String = (
+		GameState.ui("扰动", "PERTURBATION")
+		if condition_key == "perturbation"
+		else GameState.ui("基线", "BASELINE")
+	)
+	box.add_child(_make_stat_row(GameState.ui("实验条件", "CONDITION"), condition))
 
 	# ---- 按钮行 ----
 	var actions: HBoxContainer = HBoxContainer.new()
@@ -234,17 +267,17 @@ func _build() -> void:
 	actions.add_theme_constant_override("separation", 16)
 	box.add_child(actions)
 
-	var retry: Button = _make_icon_button("RETRY", "retry")
+	var retry: Button = _make_icon_button(GameState.ui("重试", "RETRY"), "retry")
 	retry.pressed.connect(_on_retry)
 	actions.add_child(retry)
 
-	var select: Button = _make_icon_button("LEVELS", "levels")
+	var select: Button = _make_icon_button(GameState.ui("选关", "LEVELS"), "levels")
 	select.pressed.connect(func() -> void: SceneDirector.go_to("res://scenes/level_select.tscn"))
 	actions.add_child(select)
 
 	var next_path: String = GameState.next_level_path(str(result.get("level_id", "")))
 	if success and next_path != "":
-		var next_btn: Button = _make_icon_button("NEXT", "next")
+		var next_btn: Button = _make_icon_button(GameState.ui("下一关", "NEXT"), "next")
 		next_btn.pressed.connect(func() -> void:
 			GameState.current_level = load(next_path) as LevelDef
 			SceneDirector.go_to("res://scenes/level.tscn")
@@ -252,7 +285,7 @@ func _build() -> void:
 		actions.add_child(next_btn)
 		next_btn.grab_focus.call_deferred()
 	else:
-		var title_btn: Button = _make_icon_button("TITLE", "home")
+		var title_btn: Button = _make_icon_button(GameState.ui("标题", "TITLE"), "home")
 		title_btn.pressed.connect(func() -> void:
 			InputHub.clear_slots()
 			SceneDirector.go_to("res://scenes/title_screen.tscn")
@@ -271,12 +304,12 @@ func _make_icon_button(text: String, icon_name: String) -> Button:
 ## 轻度稳定状态：按碰撞次数给个定性描述，不做数值评分
 func _stability_text(hit_count: int) -> String:
 	if hit_count == 0:
-		return "SMOOTH"
+		return GameState.ui("平滑", "SMOOTH")
 	if hit_count <= 2:
-		return "STEADY"
+		return GameState.ui("稳定", "STEADY")
 	if hit_count <= 5:
-		return "BUMPY"
-	return "WILD"
+		return GameState.ui("颠簸", "BUMPY")
+	return GameState.ui("失控", "WILD")
 
 ## 一行结算数据：左名称右数值
 func _make_stat_row(label_text: String, value_text: String) -> Control:
@@ -289,6 +322,12 @@ func _make_stat_row(label_text: String, value_text: String) -> Control:
 	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	row.add_child(value_label)
 	return row
+
+## 结算页按取消键直接返回选关，保证不经过键盘也能完成返回操作。
+func _input(event: InputEvent) -> void:
+	if event.is_action_pressed(InputHub.UI_CANCEL_ACTION):
+		get_viewport().set_input_as_handled()
+		SceneDirector.go_to("res://scenes/level_select.tscn")
 
 func _on_retry() -> void:
 	if GameState.current_level != null:

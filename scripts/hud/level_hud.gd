@@ -13,7 +13,7 @@ var _hearts: Array[TextureRect] = []
 var _heart_springs: Array[UiSpring] = []
 ## 上一次显示的半心数（0～6；掉血时弹动对应那颗）
 var _prev_halves: int = -1
-var _time_label: Label
+var _time_label: Control
 var _tutorial_bubble: NinePatchRect
 var _tutorial_label: Label
 var _tutorial_tag: Label
@@ -89,7 +89,9 @@ func _build() -> void:
 	_tutorial_spring = UiSpring.attach(_tutorial_bubble, 0.5, 0.35)
 
 	# TIP 标签：小一档强调色，只做步骤索引；正文才是阅读主体
-	_tutorial_tag = MenuKit.make_label("TIP 1/4", 20, MenuKit.COL_ACCENT, 0)
+	_tutorial_tag = MenuKit.make_label(
+		GameState.ui("提示 1/4", "TIP 1/4"), 22, MenuKit.COL_ACCENT, 0
+	)
 	_tutorial_tag.position = Vector2(64, 24)
 	_tutorial_bubble.add_child(_tutorial_tag)
 
@@ -142,10 +144,10 @@ func _build_timer_bar() -> void:
 	_clock_spring = UiSpring.attach(_clock, 0.35, 0.4)
 
 	# 秒数：条下方世界字幕，轻描边保证草地上可读，但不抢进度条本体
-	_time_label = MenuKit.make_world_caption("00:00", 20)
+	_time_label = MenuKit.make_pixel_outline_text("00:00", 32, MenuKit.COL_CREAM, 3)
 	_time_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	_time_label.position = Vector2(-60, 92)
-	_time_label.size = Vector2(120, 24)
+	_time_label.position = Vector2(-110, 84)
+	_time_label.size = Vector2(220, 48)
 	_root.add_child(_time_label)
 
 ## 时间轴上的“输入缩减”警示带：
@@ -174,10 +176,12 @@ func _build_dampen_mark(frame: NinePatchRect) -> void:
 
 ## 练习关：世界字幕级 PRACTICE 标签——交代"无倒计时"，不抢红心与教程气泡
 func _build_practice_tag() -> void:
-	_time_label = MenuKit.make_world_caption("PRACTICE 00:00", 20)
+	_time_label = MenuKit.make_pixel_outline_text(
+		GameState.ui("练习 00:00", "PRACTICE 00:00"), 32, MenuKit.COL_CREAM, 3
+	)
 	_time_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	_time_label.position = Vector2(-180, 28)
-	_time_label.size = Vector2(360, 32)
+	_time_label.position = Vector2(-220, 24)
+	_time_label.size = Vector2(440, 44)
 	_root.add_child(_time_label)
 
 ## 烘焙 16x16 像素闹钟图标（表壳 + 表盘 + 指针 + 双铃）
@@ -212,8 +216,9 @@ func _bar_color(ratio: float) -> Color:
 
 ## 开场关名提示：居中浮现后淡出
 func _show_level_name(level_name: String) -> void:
-	var toast: Label = MenuKit.make_label(level_name, 56)
-	toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var toast: Control = MenuKit.make_pixel_outline_text(
+		GameState.localize_content(level_name), 56, MenuKit.COL_CREAM, 3
+	)
 	toast.set_anchors_preset(Control.PRESET_CENTER)
 	toast.position = Vector2(-500, -220)
 	toast.size = Vector2(1000, 80)
@@ -228,8 +233,8 @@ func _show_level_name(level_name: String) -> void:
 
 ## HP → 三格红心（满 / 半 / 空）；掉血时对应红心弹动
 func _on_hp(hp: float, _max_hp: float) -> void:
-	# 3 心 × 2 = 6 个半心刻度，和浮点伤对齐
-	var halves: int = clampi(int(round(hp * 2.0)), 0, HEART_COUNT * 2)
+	# 半心刻度；血量已在 LevelState 吸附到 0.5，这里不再用会抹掉残血的 round 糊弄。
+	var halves: int = clampi(int(floor(hp * 2.0 + 0.001)), 0, HEART_COUNT * 2)
 	for i: int in HEART_COUNT:
 		var heart_halves: int = clampi(halves - i * 2, 0, 2)
 		# 0=空 1=半 2=满 → 贴图状态 2=空 1=半 0=满
@@ -242,7 +247,8 @@ func _on_hp(hp: float, _max_hp: float) -> void:
 func _on_time(time_left: float, elapsed: float, timed: bool) -> void:
 	if timed:
 		var t: int = int(ceil(time_left))
-		_time_label.text = "%02d:%02d" % [t / 60, t % 60]
+		if t != _prev_seconds:
+			MenuKit.set_pixel_outline_text(_time_label, "%02d:%02d" % [t / 60, t % 60])
 		# 长条从右往左缩短，颜色随比例绿→红
 		var ratio: float = 1.0 if _time_total <= 0.0 \
 			else clampf(time_left / _time_total, 0.0, 1.0)
@@ -262,17 +268,31 @@ func _on_time(time_left: float, elapsed: float, timed: bool) -> void:
 		if t != _prev_seconds and (ratio < 0.3 or time_left < 12.0):
 			_clock_spring.punch(0.65 if time_left < 12.0 else 0.4)
 		if time_left < 12.0:
-			_time_label.label_settings.font_color = MenuKit.COL_DANGER
+			MenuKit.set_pixel_outline_color(_time_label, MenuKit.COL_DANGER)
 		_prev_seconds = t
 	else:
 		var t: int = int(floor(elapsed))
-		_time_label.text = "PRACTICE %02d:%02d" % [t / 60, t % 60]
+		if t != _prev_seconds:
+			MenuKit.set_pixel_outline_text(
+				_time_label,
+				GameState.ui(
+					"练习 %02d:%02d" % [t / 60, t % 60],
+					"PRACTICE %02d:%02d" % [t / 60, t % 60],
+				),
+			)
+		_prev_seconds = t
 
 func _on_tutorial(step_index: int, text: String) -> void:
 	if text.is_empty():
 		_tutorial_bubble.visible = false
 		return
 	_tutorial_bubble.visible = true
-	_tutorial_tag.text = "TIP %d/%d" % [step_index + 1, _state.tutorial_texts.size()]
-	_tutorial_label.text = text
+	MenuKit.set_label_text(
+		_tutorial_tag,
+		GameState.ui(
+			"提示 %d/%d" % [step_index + 1, _state.tutorial_texts.size()],
+			"TIP %d/%d" % [step_index + 1, _state.tutorial_texts.size()],
+		),
+	)
+	MenuKit.set_label_text(_tutorial_label, GameState.localize_content(text))
 	_tutorial_spring.punch(0.3)

@@ -19,11 +19,12 @@ extends RigidBody2D
 ##   传给 shader；球贴图子节点每帧反向旋转，保证光照方向恒定、
 ##   自转完全由 shader 的球面纹理体现。
 
-## 单只猴子推力产生的加速度（像素/秒²）；两人同向时两股力自然相加
+## 单人满推时的引擎加速度（像素/秒²）；物理力 = move × push_force × mass。
+## move 已是实验虚拟力 / Fmax（0～1），这里不要再除一次 Fmax。
 @export var push_force: float = 150.0
-## 单只猴子全力切向发力时的角加速度（弧度/秒²）
+## 单只猴子全力切向发力时的角加速度（弧度/秒²）；同样按 move 幅值连续缩放
 @export var spin_accel: float = 3.4
-## 滚动摩擦产生的恒定减速度（像素/秒²）
+## 滚动摩擦产生的恒定减速度（像素/秒²）；须明显低于单人满推加速度
 @export var friction_decel: float = 40.0
 ## 闲置猴子脚下接触点的库仑摩擦（像素/秒²）
 @export var idle_contact_friction: float = 65.0
@@ -41,10 +42,10 @@ extends RigidBody2D
 @export var ball_radius: float = 44.0
 ## 球贴图边长（虚拟像素数），决定像素颗粒粗细
 @export var texture_size: int = 88
-## 触发震屏的最小速度突变（像素/秒）
+## 触发震屏/扣血的最小速度突变（像素/秒）
 @export var impact_threshold: float = 90.0
 
-## 球撞到障碍/围墙时发出（参数 = 速度突变量），供分屏相机震屏
+## 球撞到障碍/围墙时发出（参数 = 速度突变量），供分屏相机震屏与扣血
 signal impacted(strength: float)
 
 ## 球当前姿态（局部坐标 -> 视图坐标的旋转），随滚动/自转不断累积
@@ -81,33 +82,31 @@ func _ready() -> void:
 	_push_orientation_to_shader()
 
 func _physics_process(delta: float) -> void:
-	# —— 先收集输入与脚下抓地状态 ——
-	var inputs: Array[Vector2] = []
+	# —— 先收集力采样与脚下抓地状态（与实验映射同源，无二次阈值）——
+	var moves: Array[Vector2] = []
 	var active_count: int = 0
 	for i: int in _monkeys.size():
-		var dir: Vector2 = _monkeys[i].read_input()
-		# 小于阈值的摇杆漂移视为松手；松手意味着猴子脚下开始抓地
-		if dir.length() < 0.18:
-			dir = Vector2.ZERO
-		else:
+		var sample: ForceMapper.Sample = InputHub.get_force_sample(_monkeys[i].player_slot)
+		var move: Vector2 = sample.move
+		if move != Vector2.ZERO:
 			active_count += 1
-		inputs.append(dir)
-		_update_idle_resistance(i, dir == Vector2.ZERO, delta)
+		moves.append(move)
+		_update_idle_resistance(i, move == Vector2.ZERO, delta)
 
-	# —— 每只猴子的输入 → 推力 + 扭矩 ——
+	# —— 每只猴子的虚拟力 → 推力 + 扭矩 ——
 	var total_input: Vector2 = Vector2.ZERO
 	var total_torque_input: float = 0.0
 	for i: int in _monkeys.size():
 		var monkey: Monkey = _monkeys[i]
-		var dir: Vector2 = inputs[i]
-		if dir == Vector2.ZERO:
+		var move: Vector2 = moves[i]
+		if move == Vector2.ZERO:
 			continue
-		total_input += dir
-		# 平移分量
-		apply_central_force(dir * push_force * mass)
-		# 旋转分量：叉积给出"切向发力"的比例与方向
+		total_input += move
+		# 平移分量：move 已是 force/Fmax（0～1），再乘 push_force 得到引擎加速度。
+		apply_central_force(move * push_force * mass)
+		# 旋转分量：叉积给出"切向发力"的比例与方向；幅值随 m2·gain 连续缩放
 		var anchor_dir: Vector2 = (monkey.global_position - global_position).normalized()
-		var torque_factor: float = anchor_dir.cross(dir)
+		var torque_factor: float = anchor_dir.cross(move)
 		total_torque_input += torque_factor
 		apply_torque(torque_factor * spin_accel * inertia)
 
@@ -143,7 +142,7 @@ func _physics_process(delta: float) -> void:
 	_orientation = _orientation.orthonormalized()
 	_push_orientation_to_shader()
 
-	# —— 碰撞冲击检测：速度突变超过阈值 → 通知相机震屏 ——
+	# —— 碰撞冲击检测（震屏 / 扣血；手柄震动改听 BallHealth.damaged）——
 	var impact: float = (_prev_velocity - linear_velocity).length()
 	if impact >= impact_threshold:
 		impacted.emit(impact)

@@ -16,6 +16,6 @@ time_limit = 60.0
 ball_max_hp = 3.0
 death_time_penalty = 8.0
 tutorial_steps = PackedStringArray()
-intro_lines = PackedStringArray("SIGNAL JAM ALERT!", "FROM 5S TO 35S, ONE PLAYER'S INPUT", "RANDOMLY DROPS TO ABOUT 65% POWER.", "WATCH THE PURPLE ZONE ON THE TIMER.")
+intro_lines = PackedStringArray("SIGNAL JAM ALERT!", "ONLY IN PERTURBATION CONDITION:", "FROM 5S TO 35S ONE INPUT DROPS TO ~65%.", "BASELINE RUNS HAVE NO SIGNAL JAM.")
 dampen_window = Vector2(5, 35)
 is_practice = false

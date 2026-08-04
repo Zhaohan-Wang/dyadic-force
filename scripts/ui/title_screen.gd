@@ -9,14 +9,19 @@ const TEX_LOGO: Texture2D = preload("res://assets/ui/title_logo.png")
 ## LOGO 浮动动效的振幅（像素）与半周期（秒）
 const LOGO_BOB_PX: float = 12.0
 const LOGO_BOB_HALF_S: float = 1.6
+## 手柄震动强度分档：关闭 / 轻柔 / 标准 / 强烈。
+const HAPTIC_LEVELS: PackedFloat32Array = [0.0, 0.55, 0.85, 1.0]
 
 ## 设置弹窗根节点（含遮罩）
 var _settings_layer: Control = null
 ## 打开设置前聚焦的按钮（关闭时还原焦点）
 var _settings_return_focus: Control = null
+## 底部动态输入提示容器，手柄热插拔时重建。
+var _hint_holder: HBoxContainer
 
 func _ready() -> void:
 	_build()
+	InputHub.joy_hotplug.connect(_on_joy_hotplug)
 
 func _build() -> void:
 	# ---- 全屏背景场景 ----
@@ -47,11 +52,12 @@ func _build() -> void:
 	bob.tween_property(logo, "position:y", logo_y, LOGO_BOB_HALF_S) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
-	# 副标题：比 LOGO 小两档，只交代题材，不抢招牌
-	var sub: Label = MenuKit.make_world_caption("TWO MONKEYS - ONE BIG BALL", 22)
+	# 副标题使用独立粗体样式，避免通用标题描边吞掉中英文细笔画。
+	var sub_text: String = GameState.ui("两只猴子 · 一颗大球", "TWO MONKEYS - ONE BIG BALL")
+	var sub: Control = MenuKit.make_brand_subtitle(sub_text, 58)
 	sub.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	sub.position = Vector2(-400, 448)
-	sub.size = Vector2(800, 40)
+	sub.position = Vector2(-500, 430)
+	sub.size = Vector2(1000, 68)
 	add_child(sub)
 	UiSpring.attach(sub, 0.55, 0.25).pop_in(0.15)
 
@@ -62,15 +68,21 @@ func _build() -> void:
 	col.add_theme_constant_override("separation", 28)
 	add_child(col)
 
-	var start_btn: Button = MenuKit.make_big_button("START GAME", 28, Vector2(440, 108))
+	var start_btn: Button = MenuKit.make_big_button(
+		GameState.ui("开始游戏", "START GAME"), 32, Vector2(440, 108)
+	)
 	start_btn.pressed.connect(_on_start)
 	col.add_child(start_btn)
 
-	var settings_btn: Button = MenuKit.make_big_button("SETTINGS", 28, Vector2(440, 108))
+	var settings_btn: Button = MenuKit.make_big_button(
+		GameState.ui("设置", "SETTINGS"), 32, Vector2(440, 108)
+	)
 	settings_btn.pressed.connect(_open_settings)
 	col.add_child(settings_btn)
 
-	var quit_btn: Button = MenuKit.make_big_button("QUIT", 28, Vector2(440, 108))
+	var quit_btn: Button = MenuKit.make_big_button(
+		GameState.ui("退出游戏", "QUIT"), 32, Vector2(440, 108)
+	)
 	quit_btn.pressed.connect(func() -> void: get_tree().quit())
 	col.add_child(quit_btn)
 
@@ -83,21 +95,29 @@ func _build() -> void:
 	start_btn.grab_focus.call_deferred()
 
 	# ---- 底部操作提示 ----
-	var hint: HBoxContainer = HBoxContainer.new()
-	hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	hint.position = Vector2(-330, -76)
-	hint.custom_minimum_size = Vector2(660, 48)
-	hint.add_theme_constant_override("separation", 14)
-	hint.alignment = BoxContainer.ALIGNMENT_CENTER
-	add_child(hint)
-	hint.add_child(MenuKit.make_key_icon("UP", 40.0))
-	hint.add_child(MenuKit.make_key_icon("DOWN", 40.0))
-	hint.add_child(MenuKit.make_world_caption("MOVE", 22))
+	_hint_holder = HBoxContainer.new()
+	_hint_holder.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_hint_holder.position = Vector2(-480, -82)
+	_hint_holder.custom_minimum_size = Vector2(960, 54)
+	_hint_holder.add_theme_constant_override("separation", 28)
+	_hint_holder.alignment = BoxContainer.ALIGNMENT_CENTER
+	add_child(_hint_holder)
+	_refresh_input_hints()
+
+## 根据当前检测到的设备组合刷新标题页提示。
+func _refresh_input_hints() -> void:
+	for child: Node in _hint_holder.get_children():
+		child.queue_free()
+	var profile: InputHub.SessionProfile = InputHub.menu_profile()
+	_hint_holder.add_child(MenuKit.make_device_hint_row(
+		["UP", "DOWN"], ["dpad"], GameState.ui("移动", "MOVE"), 40.0, profile
+	))
 	var spacer: Control = Control.new()
 	spacer.custom_minimum_size = Vector2(36, 0)
-	hint.add_child(spacer)
-	hint.add_child(MenuKit.make_pad_icon("a", 40.0))
-	hint.add_child(MenuKit.make_world_caption("SELECT", 22))
+	_hint_holder.add_child(spacer)
+	_hint_holder.add_child(MenuKit.make_device_hint_row(
+		["ENTER"], ["a"], GameState.ui("确认", "SELECT"), 40.0, profile
+	))
 
 # ---------- 设置弹窗 ----------
 
@@ -110,10 +130,10 @@ func _open_settings() -> void:
 	add_child(_settings_layer)
 	_settings_layer.add_child(MenuKit.make_dim_overlay())
 
-	var panel: NinePatchRect = MenuKit.make_panel(Vector2(560, 520))
+	var panel: NinePatchRect = MenuKit.make_panel(Vector2(620, 760))
 	panel.set_anchors_preset(Control.PRESET_CENTER)
-	panel.position = Vector2(-280, -260)
-	panel.size = Vector2(560, 520)
+	panel.position = Vector2(-310, -380)
+	panel.size = Vector2(620, 760)
 	_settings_layer.add_child(panel)
 	UiSpring.attach(panel, 0.45, 0.3).pop_in(0.0)
 
@@ -123,32 +143,42 @@ func _open_settings() -> void:
 	box.offset_right = -48.0
 	box.offset_top = 40.0
 	box.offset_bottom = -40.0
-	box.add_theme_constant_override("separation", 24)
+	box.add_theme_constant_override("separation", 20)
 	panel.add_child(box)
 
 	# 面板标题：强调橙 + 面板硬阴影（奶油底上绝不用奶油字）
-	var title: Label = MenuKit.make_title_label("SETTINGS", 32, MenuKit.COL_ACCENT, true)
+	var title: Label = MenuKit.make_title_label(
+		GameState.ui("设置", "SETTINGS"), 36, MenuKit.COL_ACCENT, true
+	)
 	box.add_child(title)
 
-	var shake_row: Control = _make_toggle_row("SCREEN SHAKE", GameState.shake_enabled,
+	var language_row: Control = _make_language_row()
+	box.add_child(language_row)
+
+	var shake_row: Control = _make_toggle_row(GameState.ui("画面震动", "SCREEN SHAKE"), GameState.shake_enabled,
 		func(on: bool) -> void:
 			GameState.shake_enabled = on
 			GameState.save_settings()
 	)
 	box.add_child(shake_row)
 
-	var vignette_row: Control = _make_toggle_row("VIGNETTE", GameState.vignette_enabled,
+	var vignette_row: Control = _make_toggle_row(GameState.ui("暗角效果", "VIGNETTE"), GameState.vignette_enabled,
 		func(on: bool) -> void:
 			GameState.vignette_enabled = on
 			GameState.save_settings()
 	)
 	box.add_child(vignette_row)
 
+	var haptic_row: Control = _make_haptic_row()
+	box.add_child(haptic_row)
+
 	var filler: Control = Control.new()
 	filler.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	box.add_child(filler)
 
-	var done: Button = MenuKit.make_big_button("DONE", 28, Vector2(280, 96))
+	var done: Button = MenuKit.make_big_button(
+		GameState.ui("完成", "DONE"), 30, Vector2(280, 96)
+	)
 	done.pressed.connect(_close_settings)
 	var done_holder: HBoxContainer = HBoxContainer.new()
 	done_holder.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -156,8 +186,88 @@ func _open_settings() -> void:
 	box.add_child(done_holder)
 
 	# 焦点移进弹窗
-	var first_toggle: Button = shake_row.get_node("Toggle") as Button
-	first_toggle.grab_focus.call_deferred()
+	var language_button: Button = language_row.get_node("Language") as Button
+	language_button.grab_focus.call_deferred()
+
+## 语言设置行：显示当前语言，按下后立即切换并重建标题页。
+func _make_language_row() -> Control:
+	var row: HBoxContainer = HBoxContainer.new()
+	row.custom_minimum_size = Vector2(0, 82)
+	var label: Label = MenuKit.make_label(
+		GameState.ui("语言", "LANGUAGE"), 30, MenuKit.COL_INK, 0
+	)
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(label)
+	var language_button: Button = MenuKit.make_big_button(
+		"中文" if GameState.language == GameState.LANGUAGE_ZH else "ENGLISH",
+		26,
+		Vector2(250, 76),
+	)
+	language_button.name = "Language"
+	language_button.pressed.connect(_toggle_language)
+	row.add_child(language_button)
+	return row
+
+func _toggle_language() -> void:
+	var next: String = (
+		GameState.LANGUAGE_EN
+		if GameState.language == GameState.LANGUAGE_ZH
+		else GameState.LANGUAGE_ZH
+	)
+	GameState.set_language(next)
+	_rebuild_for_language.call_deferred()
+
+## 手柄震动强度：提供关闭与三档强度，兼顾可访问性和不同硬件差异。
+func _make_haptic_row() -> Control:
+	var row: HBoxContainer = HBoxContainer.new()
+	row.custom_minimum_size = Vector2(0, 82)
+	var label: Label = MenuKit.make_label(
+		GameState.ui("手柄震动", "CONTROLLER VIBRATION"), 28, MenuKit.COL_INK, 0
+	)
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(label)
+	var button: Button = MenuKit.make_big_button(
+		_haptic_level_text(), 24, Vector2(250, 76)
+	)
+	button.name = "Haptics"
+	button.pressed.connect(func() -> void:
+		_cycle_haptic_strength()
+		button.text = _haptic_level_text()
+		HapticHub.preview_connected()
+	)
+	row.add_child(button)
+	return row
+
+func _cycle_haptic_strength() -> void:
+	var nearest_index: int = 0
+	var nearest_distance: float = INF
+	for index: int in HAPTIC_LEVELS.size():
+		var distance: float = absf(GameState.haptic_strength - HAPTIC_LEVELS[index])
+		if distance < nearest_distance:
+			nearest_distance = distance
+			nearest_index = index
+	var next_index: int = (nearest_index + 1) % HAPTIC_LEVELS.size()
+	GameState.haptic_strength = HAPTIC_LEVELS[next_index]
+	GameState.save_settings()
+
+func _haptic_level_text() -> String:
+	if GameState.haptic_strength < 0.1:
+		return GameState.ui("关闭", "OFF")
+	if GameState.haptic_strength < 0.7:
+		return GameState.ui("轻柔", "GENTLE")
+	if GameState.haptic_strength < 0.95:
+		return GameState.ui("标准", "STANDARD")
+	return GameState.ui("强烈", "STRONG")
+
+## 切换语言后重建代码生成的界面，保证所有文本和字体立即更新。
+func _rebuild_for_language() -> void:
+	_settings_layer = null
+	_settings_return_focus = null
+	for child: Node in get_children():
+		child.free()
+	_build()
 
 ## 一行设置项：左侧文字，右侧 Sprout 勾选块
 func _make_toggle_row(text: String, initial: bool, on_changed: Callable) -> Control:
@@ -214,5 +324,15 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			_close_settings()
 			get_viewport().set_input_as_handled()
 
+## 在 UI 控件处理前响应取消键，确保 Xbox B / Nintendo B 能可靠关闭设置。
+func _input(event: InputEvent) -> void:
+	if event.is_action_pressed(InputHub.UI_CANCEL_ACTION) and _settings_layer != null:
+		_close_settings()
+		get_viewport().set_input_as_handled()
+
 func _on_start() -> void:
 	SceneDirector.go_to("res://scenes/pairing_screen.tscn")
+
+func _on_joy_hotplug(_device_id: int, _connected: bool) -> void:
+	if _hint_holder != null and is_instance_valid(_hint_holder):
+		_refresh_input_hints()

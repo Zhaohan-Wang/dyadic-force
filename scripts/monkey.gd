@@ -25,8 +25,12 @@ extends Node2D
 ## 标签文字颜色（两名玩家用不同颜色便于区分）
 @export var label_color: Color = Color(1.0, 0.98, 0.9)
 
-## 箭头绕猴子身体中心的轨道半径（像素）
-const ARROW_ORBIT: float = 26.0
+## 箭头绕猴子身体中心的轨道半径（像素）；实际半径随力度 m2 在 [MIN, MAX] 间插值
+const ARROW_ORBIT_MIN: float = 18.0
+const ARROW_ORBIT_MAX: float = 30.0
+## 箭头缩放随力度：轻推略小，满推略大
+const ARROW_SCALE_MIN: float = 0.55
+const ARROW_SCALE_MAX: float = 1.15
 ## 猴子身体中心相对脚底锚点的偏移（贴图 32x32，脚底对齐节点原点）
 const BODY_CENTER: Vector2 = Vector2(0.0, -12.0)
 ## 整体视觉再往下压一点：默认正对（上下端点）时原先略偏高
@@ -40,8 +44,10 @@ const BEHIND_SWITCH: float = 3.0
 const DRAG_SPEED: float = 60.0
 const DRAG_SPIN: float = 1.2
 
-## 当前帧的输入方向（球通过 read_input() 取实时值）
+## 当前帧的输入方向（球通过 read_input() 取实时值；幅值 = m2·gain）
 var input_vector: Vector2 = Vector2.ZERO
+## 当前帧力度 0～1（ForceMapper.Sample.m2 × gain），驱动箭头远近/大小
+var input_intensity: float = 0.0
 
 var _behind: bool = false        # 当前是否处于球的后方（绘制在球贴图之下）
 ## 闲置系绳阻力权重（由 PixelBall 注入，0=自由 1=完全拖拽）
@@ -81,7 +87,10 @@ func read_input() -> Vector2:
 	# 统一走 InputHub（autoload）；未就绪时回退动作映射
 	var hub: Node = get_node_or_null("/root/InputHub")
 	if hub != null:
-		return InputHub.get_move_vector(player_slot)
+		var sample: ForceMapper.Sample = InputHub.get_force_sample(player_slot)
+		input_intensity = sample.m2 * sample.gain
+		return sample.move
+	input_intensity = 0.0
 	return Input.get_vector(
 		action_prefix + "_left", action_prefix + "_right",
 		action_prefix + "_up", action_prefix + "_down"
@@ -156,32 +165,24 @@ func _process(delta: float) -> void:
 		_behind = false
 		_ball.move_child(self, _ball.get_child_count() - 1)  # 移回最上层
 
-	# —— 箭头：主轴吸附后再指向，避免"竖走却出横箭头" ——
+	# —— 箭头：360° 方向 + 随力度变化的距离/缩放/透明度 ——
 	if input_vector != Vector2.ZERO:
-		var dir: Vector2 = _snap_arrow_dir(input_vector)
+		var dir: Vector2 = input_vector.normalized()
+		var intensity: float = clampf(input_intensity, 0.0, 1.0)
+		var orbit: float = lerpf(ARROW_ORBIT_MIN, ARROW_ORBIT_MAX, intensity)
+		var scale_target: float = lerpf(ARROW_SCALE_MIN, ARROW_SCALE_MAX, intensity)
 		_arrow.visible = true
-		_arrow.position = BODY_CENTER + dir * ARROW_ORBIT
+		_arrow.position = BODY_CENTER + dir * orbit
 		_arrow.rotation = dir.angle()
-		_arrow_spring.target = Vector2.ONE
+		_arrow.modulate.a = lerpf(0.45, 1.0, intensity)
+		_arrow_spring.target = Vector2.ONE * scale_target
 	else:
 		_arrow_spring.target = Vector2.ZERO
 	var arrow_scale: Vector2 = _arrow_spring.update(delta)
 	_arrow.scale = arrow_scale
 	if input_vector == Vector2.ZERO and arrow_scale.length() < 0.06:
 		_arrow.visible = false
-
-## 主轴吸附：一轴明显占优时锁到纯水平/纯垂直；两轴接近才保留对角。
-## 理由：像素箭头是离散方向语言，斜噪声会让玩家误判自己在推的方向。
-func _snap_arrow_dir(raw: Vector2) -> Vector2:
-	var ax: float = absf(raw.x)
-	var ay: float = absf(raw.y)
-	if ax < 0.001 and ay < 0.001:
-		return Vector2.RIGHT
-	if ax > ay * 1.25:
-		return Vector2(signf(raw.x), 0.0)
-	if ay > ax * 1.25:
-		return Vector2(0.0, signf(raw.y))
-	return Vector2(signf(raw.x), signf(raw.y)).normalized()
+		_arrow.modulate.a = 1.0
 
 ## 脚下椭圆阴影：与球同一光源（左上 → 影落右下），压扁贴地，不挡读路
 func _build_shadow() -> void:

@@ -6,7 +6,7 @@ extends Control
 ## - 手柄按 A 认领第一个空槽位
 ## - 退出：P1 键盘按 X、P2 键盘按 DEL、手柄按 B
 ## - 双方都加入后 START 才可用（Enter / 手柄 A / 点击）
-## - ESC 返回标题并清空槽位；手柄拔出时对应槽位自动腾空
+## - ESC 返回标题；未加入的手柄按 B 返回标题；手柄拔出时对应槽位自动腾空
 
 ## 每张槽位卡的节点引用集合
 class SlotCard:
@@ -19,11 +19,11 @@ class SlotCard:
 
 var _cards: Array[SlotCard] = []
 var _start_btn: Button
-var _start_hint: Label
-var _toast: Label
+var _start_hint: Control
+var _toast: Control
 var _toast_tween: Tween = null
-## 手柄按键边沿检测缓存 joy_id -> {a: bool, b: bool}
-var _prev_pad: Dictionary = {}
+## 左上返回提示；槽位变化后按当前双人设备组合重建。
+var _back_hint_holder: HBoxContainer
 ## 最近一次槽位变化时间（防止加入的 A 键立刻触发开始）
 var _slots_changed_ms: int = 0
 
@@ -37,7 +37,9 @@ func _build() -> void:
 	add_child(MenuKit.make_grass_bg())
 
 	# 页面标题统一用街机粗方块字（Press Start 2P）
-	var title: Label = MenuKit.make_title_label("PAIR UP", 40)
+	var title: Control = MenuKit.make_pixel_outline_text(
+		GameState.ui("玩家配对", "PAIR UP"), 40, MenuKit.COL_CREAM, 3
+	)
 	title.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	title.position = Vector2(-400, 64)
 	title.size = Vector2(800, 72)
@@ -45,7 +47,9 @@ func _build() -> void:
 	UiSpring.attach(title, 0.5, 0.3).pop_in(0.02)
 
 	# 副标题：告诉玩家门槛，字号/透明度都压在主标题之下
-	var sub: Label = MenuKit.make_world_caption("BOTH PLAYERS MUST JOIN TO START", 22)
+	var sub: Control = MenuKit.make_world_caption(
+		GameState.ui("两名玩家都加入后才能开始", "BOTH PLAYERS MUST JOIN TO START"), 28
+	)
 	sub.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	sub.position = Vector2(-400, 152)
 	sub.size = Vector2(800, 40)
@@ -64,31 +68,36 @@ func _build() -> void:
 		row.add_child(card)
 
 	# ---- START 与提示 ----
-	_start_btn = MenuKit.make_big_button("START", 28, Vector2(440, 108))
+	_start_btn = MenuKit.make_big_button(
+		GameState.ui("开始", "START"), 32, Vector2(440, 108)
+	)
 	_start_btn.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_start_btn.position = Vector2(-220, -232)
 	_start_btn.pressed.connect(_on_start)
 	add_child(_start_btn)
 	UiSpring.attach(_start_btn, 0.45, 0.3).pop_in(0.3)
 
-	_start_hint = MenuKit.make_label("WAITING FOR PLAYERS...", 28, Color(1, 1, 1, 0.7))
-	_start_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_start_hint = MenuKit.make_pixel_outline_text(
+		GameState.ui("等待玩家加入…", "WAITING FOR PLAYERS..."),
+		28,
+		Color(1, 1, 1, 0.7),
+		2,
+	)
 	_start_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_start_hint.position = Vector2(-400, -108)
 	_start_hint.size = Vector2(800, 40)
 	add_child(_start_hint)
 
 	# ---- 返回提示（左上角） ----
-	var back_row: HBoxContainer = HBoxContainer.new()
-	back_row.position = Vector2(40, 36)
-	back_row.add_theme_constant_override("separation", 12)
-	add_child(back_row)
-	back_row.add_child(MenuKit.make_key_icon("ESC", 44.0))
-	back_row.add_child(MenuKit.make_label("BACK", 28, Color(1, 1, 1, 0.75)))
+	_back_hint_holder = HBoxContainer.new()
+	_back_hint_holder.position = Vector2(40, 36)
+	add_child(_back_hint_holder)
+	_refresh_back_hint()
 
 	# ---- 顶部通知条 ----
-	_toast = MenuKit.make_label("", 28, MenuKit.COL_CREAM)
-	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_toast = MenuKit.make_pixel_outline_text(
+		GameState.ui("通知", "NOTICE"), 28, MenuKit.COL_CREAM, 2
+	)
 	_toast.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_toast.position = Vector2(-500, -56)
 	_toast.size = Vector2(1000, 40)
@@ -132,30 +141,22 @@ func _make_slot_card(slot: int) -> Control:
 	(card.empty_box as VBoxContainer).add_theme_constant_override("separation", 14)
 	box.add_child(card.empty_box)
 
-	var join_label: Label = MenuKit.make_label("PRESS TO JOIN", 28, Color(MenuKit.COL_INK, 0.75), 0)
+	var join_label: Label = MenuKit.make_label(
+		GameState.ui("按对应按键加入", "PRESS TO JOIN"), 28, Color(MenuKit.COL_INK, 0.75), 0
+	)
 	join_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	card.empty_box.add_child(join_label)
 
-	var keys_row: HBoxContainer = HBoxContainer.new()
-	keys_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	keys_row.add_theme_constant_override("separation", 10)
 	var key_names: Array[String] = ["W", "A", "S", "D"]
 	if slot == 1:
 		key_names = ["UP", "LEFT", "DOWN", "RIGHT"]
-	for key: String in key_names:
-		keys_row.add_child(MenuKit.make_key_icon(key, 56.0))
-	card.empty_box.add_child(keys_row)
-
-	var or_label: Label = MenuKit.make_label("- OR -", 28, Color(MenuKit.COL_INK, 0.5), 0)
-	or_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	card.empty_box.add_child(or_label)
-
-	var pad_row: HBoxContainer = HBoxContainer.new()
-	pad_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	pad_row.add_theme_constant_override("separation", 12)
-	pad_row.add_child(MenuKit.make_pad_icon("a", 56.0))
-	pad_row.add_child(MenuKit.make_label("ON GAMEPAD", 28, Color(MenuKit.COL_INK, 0.75), 0))
-	card.empty_box.add_child(pad_row)
+	card.empty_box.add_child(MenuKit.make_device_hint_row(
+		key_names,
+		["a"],
+		GameState.ui("加入", "JOIN"),
+		52.0,
+		InputHub.menu_profile(),
+	))
 
 	# --- 已加入信息区 ---
 	card.joined_box = VBoxContainer.new()
@@ -170,7 +171,9 @@ func _make_slot_card(slot: int) -> Control:
 	ready_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	ready_row.add_theme_constant_override("separation", 12)
 	ready_row.add_child(MenuKit.make_icon("check_dark", 40.0))
-	ready_row.add_child(MenuKit.make_label("READY!", 36, MenuKit.COL_READY, 0))
+	ready_row.add_child(MenuKit.make_label(
+		GameState.ui("已准备", "READY!"), 36, MenuKit.COL_READY, 0
+	))
 	card.joined_box.add_child(ready_row)
 
 	card.leave_hint = HBoxContainer.new()
@@ -186,6 +189,7 @@ func _make_slot_card(slot: int) -> Control:
 ## 依据 InputHub 槽位状态刷新两张卡与 START 按钮
 func _refresh() -> void:
 	_slots_changed_ms = Time.get_ticks_msec()
+	_refresh_back_hint()
 	for slot: int in 2:
 		var card: SlotCard = _cards[slot]
 		var joined: bool = InputHub.is_joined(slot)
@@ -193,19 +197,36 @@ func _refresh() -> void:
 		card.joined_box.visible = joined
 		card.monkey.modulate = Color.WHITE if joined else Color(0.25, 0.22, 0.18, 0.45)
 		if joined:
-			card.device_label.text = InputHub.get_slot_label(slot)
+			MenuKit.set_label_text(card.device_label, InputHub.get_slot_label(slot))
 			_fill_leave_hint(slot, card)
 
 	var ready: bool = InputHub.both_ready()
 	_start_btn.disabled = not ready
 	_start_btn.focus_mode = Control.FOCUS_ALL if ready else Control.FOCUS_NONE
 	if ready:
-		_start_hint.text = "PRESS ENTER OR (A) TO START"
+		MenuKit.set_pixel_outline_text(_start_hint, _start_prompt())
 		_start_hint.modulate = Color(1, 1, 1, 1)
 		_start_btn.grab_focus()
 	else:
-		_start_hint.text = "WAITING FOR PLAYERS..."
+		MenuKit.set_pixel_outline_text(
+			_start_hint, GameState.ui("等待玩家加入…", "WAITING FOR PLAYERS...")
+		)
 		_start_hint.modulate = Color(1, 1, 1, 0.7)
+
+## 已有槽位优先按会话组合显示；尚未加入时按已连接设备显示。
+func _refresh_back_hint() -> void:
+	for child: Node in _back_hint_holder.get_children():
+		child.queue_free()
+	var profile: InputHub.SessionProfile = InputHub.session_profile()
+	if profile == InputHub.SessionProfile.UNKNOWN:
+		profile = InputHub.menu_profile()
+	_back_hint_holder.add_child(MenuKit.make_device_hint_row(
+		["ESC"],
+		["b"],
+		GameState.ui("返回", "BACK"),
+		44.0,
+		profile,
+	))
 
 ## 填充"如何退出"提示（按设备不同展示不同按键）
 func _fill_leave_hint(slot: int, card: SlotCard) -> void:
@@ -216,11 +237,23 @@ func _fill_leave_hint(slot: int, card: SlotCard) -> void:
 		card.leave_hint.add_child(MenuKit.make_pad_icon("b", 36.0))
 	else:
 		card.leave_hint.add_child(MenuKit.make_key_icon("X" if slot == 0 else "DEL", 36.0))
-	card.leave_hint.add_child(MenuKit.make_label("LEAVE", 28, Color(MenuKit.COL_INK, 0.5), 0))
+	card.leave_hint.add_child(MenuKit.make_label(
+		GameState.ui("退出", "LEAVE"), 28, Color(MenuKit.COL_INK, 0.5), 0
+	))
+
+## 双方就绪后按实际输入组合生成开始提示。
+func _start_prompt() -> String:
+	match InputHub.session_profile():
+		InputHub.SessionProfile.GAMEPAD_ONLY:
+			return GameState.ui("按手柄 A 开始", "PRESS (A) TO START")
+		InputHub.SessionProfile.MIXED:
+			return GameState.ui("按 ENTER / 手柄 A 开始", "PRESS ENTER / (A) TO START")
+		_:
+			return GameState.ui("按 ENTER 开始", "PRESS ENTER TO START")
 
 ## 顶部通知（手柄插拔等）
 func _show_toast(text: String) -> void:
-	_toast.text = text
+	MenuKit.set_pixel_outline_text(_toast, text)
 	if _toast_tween != null:
 		_toast_tween.kill()
 	_toast.modulate.a = 1.0
@@ -256,37 +289,61 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			InputHub.clear_slots()
 			SceneDirector.go_to("res://scenes/title_screen.tscn")
 
-func _process(_delta: float) -> void:
-	# 手柄 A/B 边沿检测：A 加入（或双就绪后开始），B 退出
-	for joy_id: int in Input.get_connected_joypads():
-		var a_now: bool = Input.is_joy_button_pressed(joy_id, JOY_BUTTON_A)
-		var b_now: bool = Input.is_joy_button_pressed(joy_id, JOY_BUTTON_B)
-		var prev: Dictionary = _prev_pad.get(joy_id, {"a": false, "b": false}) as Dictionary
-		if a_now and not bool(prev["a"]):
-			_on_pad_accept(joy_id)
-		if b_now and not bool(prev["b"]):
-			var slot: int = InputHub.find_joypad_slot(joy_id)
-			if slot >= 0:
-				InputHub.leave_slot(slot)
-		_prev_pad[joy_id] = {"a": a_now, "b": b_now}
+## 直接接收 InputHub 翻译后的手柄动作，避免轮询与 UI 控件争抢同一次按键。
+func _input(event: InputEvent) -> void:
+	var action_event: InputEventAction = event as InputEventAction
+	if action_event == null or not action_event.pressed:
+		return
+	if action_event.action == InputHub.UI_ACCEPT_ACTION:
+		get_viewport().set_input_as_handled()
+		_on_pad_accept(action_event.device)
+	elif action_event.action == InputHub.UI_CANCEL_ACTION:
+		get_viewport().set_input_as_handled()
+		_on_pad_cancel(action_event.device)
 
 ## 手柄 A：未加入 → 认领空槽位；已加入且双方就绪 → 开始
 func _on_pad_accept(joy_id: int) -> void:
+	# InputEventAction.device 偶发丢失；回退到当前按下确认键的真实手柄。
+	if joy_id < 0:
+		for candidate: int in Input.get_connected_joypads():
+			if InputHub.is_joy_accept_pressed(candidate):
+				joy_id = candidate
+				break
+	if joy_id < 0:
+		return
 	if InputHub.find_joypad_slot(joy_id) < 0:
 		var slot: int = InputHub.claim_joypad(joy_id)
 		if slot >= 0:
 			_cards[slot].spring.punch(0.3)
+			HapticHub.confirm_join(joy_id)
 		return
 	# 防止加入瞬间的同一次按键立即触发开始
 	if InputHub.both_ready() and Time.get_ticks_msec() - _slots_changed_ms > 500:
 		_on_start()
 
+## 手柄 B：已加入时先退出自己的槽位；未加入时返回标题。
+func _on_pad_cancel(joy_id: int) -> void:
+	var slot: int = InputHub.find_joypad_slot(joy_id)
+	if slot >= 0:
+		InputHub.leave_slot(slot)
+		return
+	InputHub.clear_slots()
+	SceneDirector.go_to("res://scenes/title_screen.tscn")
+
 func _on_hotplug(device_id: int, connected: bool) -> void:
 	if connected:
-		_show_toast("GAMEPAD %d CONNECTED - PRESS (A) TO JOIN" % (device_id + 1))
+		_show_toast(GameState.ui(
+			"手柄 %d 已连接 · 按 A 加入" % (device_id + 1),
+			"GAMEPAD %d CONNECTED - PRESS (A) TO JOIN" % (device_id + 1),
+		))
 	else:
-		_show_toast("GAMEPAD %d DISCONNECTED" % (device_id + 1))
+		_show_toast(GameState.ui(
+			"手柄 %d 已断开" % (device_id + 1),
+			"GAMEPAD %d DISCONNECTED" % (device_id + 1),
+		))
 
 func _on_start() -> void:
-	if InputHub.both_ready():
-		SceneDirector.go_to("res://scenes/level_select.tscn")
+	if not InputHub.both_ready():
+		return
+	# 所有组合都进入输入检查页：手柄做校准，键盘明确显示“无需校准”。
+	SceneDirector.go_to("res://scenes/calibration_screen.tscn")

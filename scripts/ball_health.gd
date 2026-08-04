@@ -1,20 +1,24 @@
 class_name BallHealth
 extends Node
-## 挂在球上：撞击按力度扣半心浮点伤、无敌帧、受击闪红、重生闪白与闪烁。
-## HUD 固定 3 格；弱撞 0.5、中撞 1.0、重撞最高 1.5。
+## 挂在球上：撞击扣半心离散血量、无敌帧、受击闪红、重生闪白与闪烁。
+## HUD 固定 3 格（6 个半心）；伤害只落在 0.5 / 1.0 / 1.5，避免浮点残血空心不死。
 
 ## 冲击速度低于此值不扣血（轻微蹭墙不掉血）
-@export var damage_threshold: float = 100.0
-## 弱撞上限：低于它才算弱撞（扣半心）；再往上默认就是中撞
-@export var weak_limit: float = 150.0
-## 重撞下限：速度突变超过它算重撞（扣一心半）
-@export var heavy_limit: float = 300.0
+@export var damage_threshold: float = 90.0
+## 达到此冲击强度时扣 1.0 心；之上继续按指数抬升
+@export var reference_impact: float = 180.0
+## 单次撞击伤害上限（心）；半心步进下最大一格半
+@export var max_hit_damage: float = 1.5
+## 连续伤害指数：>1 时高速撞击代价上升更快
+@export var damage_exponent: float = 1.35
 ## 受击无敌时长（秒）
 @export var i_frame_duration: float = 0.7
 ## 重生后无敌时长（秒）——参考 Celeste / Mario 的闪烁无敌
 @export var spawn_i_frame_duration: float = 1.6
 
 signal damaged(amount: float, remaining_hp: float)
+## 带实验字段的撞击事件：强度与实际伤害一并上报
+signal impact_logged(strength: float, damage: float, remaining_hp: float)
 signal died
 
 var _state: LevelState
@@ -56,19 +60,26 @@ func _on_impacted(strength: float) -> void:
 		return
 	if strength < damage_threshold:
 		return
-	# 三档判定：默认中撞扣 1 心；只有很轻才算弱撞，快撞直接算重撞
-	var amount: float = 1.0
-	if strength < weak_limit:
-		amount = 0.5
-	elif strength >= heavy_limit:
-		amount = 1.5
+	var amount: float = _damage_from_impact(strength)
 	_i_frames = i_frame_duration
 	_flash = 0.35
 	_push_shader_flash()
 	var dead: bool = _state.apply_damage(amount)
 	damaged.emit(amount, _state.hp)
+	# 震动与扣血同事务：不依赖外部信号接线，避免“震屏有、手柄无”。
+	HapticHub.pulse_damage(amount)
+	impact_logged.emit(strength, amount, _state.hp)
 	if dead:
 		died.emit()
+
+## 冲击强度 → 半心离散伤害：0.5 / 1.0 / 1.5
+func _damage_from_impact(strength: float) -> float:
+	var span: float = maxf(reference_impact - damage_threshold, 1.0)
+	var normalized: float = clampf((strength - damage_threshold) / span, 0.0, 3.0)
+	var raw: float = minf(pow(normalized, damage_exponent), max_hit_damage)
+	# 至少半格；再吸附到 0.5 步进，杜绝 0.25 这类显示空心却未死的残血。
+	var amount: float = maxf(snappedf(raw, 0.5), 0.5)
+	return minf(amount, max_hit_damage)
 
 ## 重生时调用：短暂闪白 + 闪烁无敌（期间不会再受伤）
 func begin_spawn_protection() -> void:

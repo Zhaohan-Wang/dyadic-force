@@ -18,8 +18,8 @@ shader = ExtResource("6_shadow_shader")
 radius = 44.0
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_ball"]
-friction = 0.4
-bounce = 0.45
+friction = 0.42
+bounce = 0.38
 
 [node name="Level" type="Node2D"]
 script = ExtResource("1_level")
@@ -50,13 +50,17 @@ mass = 1.0
 physics_material_override = SubResource("PhysicsMaterial_ball")
 gravity_scale = 0.0
 continuous_cd = 1
-linear_damp = 0.95
-angular_damp = 1.4
+linear_damp = 1.05
+angular_damp = 1.5
 collision_layer = 1
 collision_mask = 1
 script = ExtResource("2_ball")
+push_force = 150.0
+spin_accel = 3.4
+friction_decel = 42.0
 ball_radius = 44.0
 texture_size = 88
+impact_threshold = 85.0
 
 [node name="Shadow" type="Sprite2D" parent="World/Ball"]
 material = SubResource("ShaderMaterial_shadow")

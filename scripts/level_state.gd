@@ -28,7 +28,7 @@ var stars: int = 0
 
 ## 用关卡定义初始化状态
 func setup(def: LevelDef) -> void:
-	max_hp = def.ball_max_hp
+	max_hp = snappedf(def.ball_max_hp, 0.5)
 	hp = max_hp
 	timed = def.time_limit > 0.0
 	time_left = def.time_limit
@@ -45,17 +45,22 @@ func start_running() -> void:
 	if phase == Phase.READY:
 		_set_phase(Phase.RUNNING)
 
-## 扣血；返回是否死亡
+## 扣血（半心步进）；返回是否死亡。
+## 显示层按半心取整，这里同步吸附，禁止出现“三心已空但球还活着”。
 func apply_damage(amount: float) -> bool:
 	if phase != Phase.RUNNING and phase != Phase.READY:
 		return false
-	hp = maxf(0.0, hp - amount)
+	var step: float = maxf(snappedf(amount, 0.5), 0.5)
+	hp = snappedf(maxf(0.0, hp - step), 0.5)
+	# 不足半心视为死亡，与 HUD 空心显示一致
+	if hp < 0.5:
+		hp = 0.0
 	hp_changed.emit(hp, max_hp)
 	return hp <= 0.0
 
 ## 回满血（重生时）
 func refill_hp() -> void:
-	hp = max_hp
+	hp = snappedf(max_hp, 0.5)
 	hp_changed.emit(hp, max_hp)
 
 ## 推进时间；返回是否超时失败

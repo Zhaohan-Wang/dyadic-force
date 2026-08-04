@@ -86,17 +86,22 @@ func _ready() -> void:
 		_ball.get_node("Monkey2") as Node2D,
 		_ball
 	)
+	HapticHub.begin_level(_health)
 
 	_state.ensure_tutorial_started()
 	_state.phase_changed.connect(_on_phase_changed)
+	# 开局即开始实验日志（含 READY 阶段的输入）
+	ExperimentLog.begin_session(_def.level_id, GameState.experiment_condition)
 
 	# 正式关开场须知：弹窗展示期间输入冻结，玩家按任意键确认后才正式开始
 	if not _def.intro_lines.is_empty():
 		_show_intro_popup()
 
-## 离开关卡时清掉输入增益，防止缩减状态残留到菜单或下一关
+## 离开关卡时清掉输入增益与日志缓冲
 func _exit_tree() -> void:
+	HapticHub.end_level()
 	InputHub.reset_gains()
+	ExperimentLog.end_session()
 
 func _physics_process(delta: float) -> void:
 	if _state == null:
@@ -114,6 +119,14 @@ func _physics_process(delta: float) -> void:
 		_update_input_dampen(delta)
 		_update_tutorial_progress()
 		_sample_trail(delta)
+	# READY / RUNNING 都记采样，保证开局输入可复算
+	if _state.phase == LevelState.Phase.READY or _state.phase == LevelState.Phase.RUNNING:
+		ExperimentLog.log_frame(
+			_state.elapsed,
+			_def.level_id,
+			GameState.experiment_condition,
+			_ball,
+		)
 
 # ---------- 开场须知弹窗 ----------
 
@@ -138,24 +151,34 @@ func _show_intro_popup() -> void:
 	UiSpring.attach(panel, 0.5, 0.35).pop_in(0.15)
 
 	# 标题：面板内强调色 + 硬阴影（奶油底禁用奶油描边字）
-	var title: Label = MenuKit.make_title_label("GET READY!", 40, MenuKit.COL_ACCENT, true)
+	var title: Label = MenuKit.make_title_label(
+		GameState.ui("准备开始！", "GET READY!"), 40, MenuKit.COL_ACCENT, true
+	)
 	title.position = Vector2(0.0, 52.0)
 	title.size = Vector2(panel_size.x, 48.0)
 	panel.add_child(title)
 
 	# 正文：面板墨色，零描边
 	for i: int in _def.intro_lines.size():
-		var line: Label = MenuKit.make_panel_label(_def.intro_lines[i], 30)
+		var line: Label = MenuKit.make_panel_label(
+			GameState.localize_content(_def.intro_lines[i]), 30
+		)
 		line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		line.position = Vector2(0.0, 136.0 + float(i) * line_h)
 		line.size = Vector2(panel_size.x, line_h)
 		panel.add_child(line)
 
 	# 底部行动提示：就绪绿，呼吸闪烁拉注意力但不抢标题
-	var hint: Label = MenuKit.make_label("- PRESS ANY KEY TO START -", 24, MenuKit.COL_READY, 0)
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.position = Vector2(0.0, panel_size.y - 78.0)
-	hint.size = Vector2(panel_size.x, 32.0)
+	var hint: HBoxContainer = MenuKit.make_device_hint_row(
+		["ENTER"],
+		["a"],
+		GameState.ui("开始", "START"),
+		40.0,
+		InputHub.session_profile(),
+	)
+	hint.alignment = BoxContainer.ALIGNMENT_CENTER
+	hint.position = Vector2(0.0, panel_size.y - 92.0)
+	hint.size = Vector2(panel_size.x, 52.0)
 	panel.add_child(hint)
 	# 绑定到 hint 自身：弹窗销毁时 tween 一并终止
 	var blink: Tween = hint.create_tween().set_loops()
@@ -195,9 +218,15 @@ func _dismiss_intro_popup() -> void:
 
 # ---------- “输入缩减”机制（第 3 关） ----------
 
-## 在缩减时段内：约每 3 秒一段，随机幅度缩到 65% 左右，A/B 交替换人
+## 在缩减时段内：约每 3 秒一段，随机幅度缩到 65% 左右，A/B 交替换人。
+## 仅 experiment_condition == "perturbation" 时启用，避免基线试次被混淆。
 func _update_input_dampen(delta: float) -> void:
 	if _def.dampen_window == Vector2.ZERO:
+		return
+	if GameState.experiment_condition != "perturbation":
+		if _dampen_slot != -1:
+			_dampen_slot = -1
+			InputHub.reset_gains()
 		return
 	var t: float = _state.elapsed
 	var inside: bool = t >= _def.dampen_window.x and t < _def.dampen_window.y
@@ -217,6 +246,13 @@ func _update_input_dampen(delta: float) -> void:
 		)
 		InputHub.slot_gains[0] = factor if _dampen_slot == 0 else 1.0
 		InputHub.slot_gains[1] = factor if _dampen_slot == 1 else 1.0
+		# 把切换事件写入实验日志
+		ExperimentLog.log_condition_event(
+			_state.elapsed,
+			_dampen_slot,
+			factor,
+			"dampen_burst_start"
+		)
 
 ## 定期采样球位置，供结算界面画核心轨迹
 func _sample_trail(delta: float) -> void:
@@ -304,16 +340,32 @@ func _setup_health() -> void:
 	_health.setup(_ball, _state)
 	_health.died.connect(_on_ball_died)
 	_health.damaged.connect(_on_ball_damaged)
+	_health.impact_logged.connect(_on_impact_logged)
 
 func _setup_hud() -> void:
 	_hud = LevelHud.new()
 	_hud.name = "LevelHud"
 	add_child(_hud)
-	_hud.setup(_state, _def.level_name, _def.time_limit, _def.dampen_window)
+	# 基线试次不显示紫色干扰带，避免误导
+	var dampen_for_hud: Vector2 = _def.dampen_window
+	if GameState.experiment_condition != "perturbation":
+		dampen_for_hud = Vector2.ZERO
+	_hud.setup(_state, _def.level_name, _def.time_limit, dampen_for_hud)
 
 func _on_ball_damaged(_amount: float, _hp: float) -> void:
 	_split_screen.shake(180.0)
 	_hit_points.append(_ball.global_position)
+
+## 把连续撞击强度与伤害写入实验事件日志
+func _on_impact_logged(strength: float, damage: float, _hp: float) -> void:
+	ExperimentLog.log_impact(
+		_state.elapsed,
+		_def.level_id,
+		GameState.experiment_condition,
+		strength,
+		damage,
+		_ball.global_position,
+	)
 
 func _on_ball_died() -> void:
 	if _respawning or _state.phase == LevelState.Phase.FINISHED:
@@ -469,7 +521,7 @@ func _on_failed() -> void:
 	await get_tree().create_timer(0.5).timeout
 	SceneDirector.go_to("res://scenes/results_screen.tscn")
 
-## 结算数据：只带客观过程信息（轨迹 / 碰撞点 / 结果），不含任何单人贡献对比
+## 结算数据：客观过程信息 + 团队级力度指标；不含单人贡献对比
 func _build_result(success: bool, stars: int) -> Dictionary:
 	var island_px: Vector2i = _builder.island_size_px()
 	# 失败结算：当前未归档的路线也算失败尝试
@@ -479,7 +531,7 @@ func _build_result(success: bool, stars: int) -> Dictionary:
 		win_trail = _trail
 	elif _trail.size() >= 2:
 		failed.append(_trail.duplicate())
-	return {
+	var result: Dictionary = {
 		"level_id": _def.level_id,
 		"level_name": _def.level_name,
 		"elapsed": _state.elapsed,
@@ -497,31 +549,54 @@ func _build_result(success: bool, stars: int) -> Dictionary:
 		"spawn": _def.spawn_point,
 		"goal": _def.goal_point,
 	}
+	var summary: Dictionary = ExperimentLog.summary_dict()
+	for key: Variant in summary.keys():
+		result[key] = summary[key]
+	ExperimentLog.end_session()
+	return result
 
 func _on_phase_changed(_phase: LevelState.Phase) -> void:
 	pass
 
-## 根据玩家行为推进练习关教程
+## 根据玩家行为推进练习关教程（含连续力度教学步骤）
 func _update_tutorial_progress() -> void:
 	if _def.tutorial_steps.is_empty():
 		return
 	var step: int = _state.tutorial_step
-	var v1: Vector2 = InputHub.get_move_vector(0)
-	var v2: Vector2 = InputHub.get_move_vector(1)
-	# 0: 同向推
-	if step == 0 and v1 != Vector2.ZERO and v2 != Vector2.ZERO:
+	var s1: ForceMapper.Sample = InputHub.get_force_sample(0)
+	var s2: ForceMapper.Sample = InputHub.get_force_sample(1)
+	var v1: Vector2 = s1.move
+	var v2: Vector2 = s2.move
+	var i1: float = s1.m2 * s1.gain
+	var i2: float = s2.m2 * s2.gain
+	# 0: 满推起步
+	if step == 0 and (i1 >= 0.85 or i2 >= 0.85) and _ball.linear_velocity.length() > 35.0:
+		_state.advance_tutorial()
+	# 1: 半推转向（中段力度）
+	elif step == 1 and (
+		(i1 > 0.2 and i1 < 0.75) or (i2 > 0.2 and i2 < 0.75)
+	) and _ball.linear_velocity.length() > 15.0:
+		_state.advance_tutorial()
+	# 2: 回中制动（有输入后出现松手）
+	elif step == 2:
+		if i1 > 0.35 or i2 > 0.35:
+			_tut_flags["pushed"] = true
+		if bool(_tut_flags.get("pushed", false)) and i1 < 0.08 and i2 < 0.08:
+			_state.advance_tutorial()
+	# 3: 同向推
+	elif step == 3 and v1 != Vector2.ZERO and v2 != Vector2.ZERO:
 		if v1.dot(v2) > 0.5:
 			_tut_flags["same"] = true
-	if step == 0 and _tut_flags.get("same", false) and _ball.linear_velocity.length() > 40.0:
-		_state.advance_tutorial()
-	# 1: 反向旋转
-	elif step == 1 and v1 != Vector2.ZERO and v2 != Vector2.ZERO:
+		if bool(_tut_flags.get("same", false)) and _ball.linear_velocity.length() > 40.0:
+			_state.advance_tutorial()
+	# 4: 反向旋转
+	elif step == 4 and v1 != Vector2.ZERO and v2 != Vector2.ZERO:
 		if v1.dot(v2) < -0.3 and absf(_ball.angular_velocity) > 1.0:
 			_state.advance_tutorial()
-	# 2: 撞击掉血（有过扣血即可）
-	elif step == 2 and _state.hp < _state.max_hp - 0.5:
+	# 5: 撞击掉血
+	elif step == 5 and _state.hp < _state.max_hp - 0.5:
 		_state.advance_tutorial()
-	# 3: 到达终点附近
-	elif step == 3:
+	# 6: 到达终点附近
+	elif step == 6:
 		if _ball.global_position.distance_to(_def.goal_point) < 120.0:
 			_state.advance_tutorial()

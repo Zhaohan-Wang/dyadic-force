@@ -19,7 +19,9 @@ config/icon="res://icon.svg"
 
 GameState="*res://autoload/game_state.gd"
 InputHub="*res://autoload/input_hub.gd"
+HapticHub="*res://autoload/haptic_hub.gd"
 SceneDirector="*res://autoload/scene_director.gd"
+ExperimentLog="*res://autoload/experiment_log.gd"
 
 [display]
 
