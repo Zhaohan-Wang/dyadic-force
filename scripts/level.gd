@@ -30,6 +30,8 @@ var _hit_points: PackedVector2Array = PackedVector2Array()
 ## ---- 开场须知弹窗 ----
 ## 弹窗所在层（非 null = 弹窗展示中，输入冻结、任意键关闭）
 var _intro_layer: CanvasLayer = null
+## 关卡内暂停菜单
+var _pause_menu: PauseMenu = null
 
 ## ---- “输入缩减”机制（第 3 关） ----
 ## 缩减到原输入的基准比例（实际每段在 ±0.05 内浮动）
@@ -75,6 +77,7 @@ func _ready() -> void:
 	_spawn_goal()
 	_setup_health()
 	_setup_hud()
+	_setup_pause_menu()
 
 	var island_px: Vector2i = _builder.island_size_px()
 	_split_screen.island_w_px = island_px.x
@@ -99,6 +102,7 @@ func _ready() -> void:
 
 ## 离开关卡时清掉输入增益与日志缓冲
 func _exit_tree() -> void:
+	get_tree().paused = false
 	HapticHub.end_level()
 	InputHub.reset_gains()
 	ExperimentLog.end_session()
@@ -187,23 +191,27 @@ func _show_intro_popup() -> void:
 	blink.tween_property(hint, "modulate:a", 1.0, 0.55) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
-## 监听任意键（键盘 / 手柄 / 鼠标）关闭开场弹窗
+## 开场弹窗任意键关闭；可暂停阶段响应 ESC / 手柄菜单键。
 func _input(event: InputEvent) -> void:
-	if _intro_layer == null:
+	if _intro_layer != null:
+		var confirmed: bool = false
+		var key: InputEventKey = event as InputEventKey
+		if key != null and key.pressed and not key.echo:
+			confirmed = true
+		var joy: InputEventJoypadButton = event as InputEventJoypadButton
+		if joy != null and joy.pressed:
+			confirmed = true
+		var mouse: InputEventMouseButton = event as InputEventMouseButton
+		if mouse != null and mouse.pressed:
+			confirmed = true
+		if confirmed:
+			get_viewport().set_input_as_handled()
+			_dismiss_intro_popup()
 		return
-	var confirmed: bool = false
-	var key: InputEventKey = event as InputEventKey
-	if key != null and key.pressed and not key.echo:
-		confirmed = true
-	var joy: InputEventJoypadButton = event as InputEventJoypadButton
-	if joy != null and joy.pressed:
-		confirmed = true
-	var mouse: InputEventMouseButton = event as InputEventMouseButton
-	if mouse != null and mouse.pressed:
-		confirmed = true
-	if confirmed:
+
+	if InputHub.is_pause_toggle_event(event) and _can_open_pause():
 		get_viewport().set_input_as_handled()
-		_dismiss_intro_popup()
+		_open_pause_menu()
 
 ## 关闭弹窗：淡出后解冻输入，关卡等待第一次输入开始计时
 func _dismiss_intro_popup() -> void:
@@ -352,6 +360,63 @@ func _setup_hud() -> void:
 		dampen_for_hud = Vector2.ZERO
 	_hud.setup(_state, _def.level_name, _def.time_limit, dampen_for_hud)
 
+func _setup_pause_menu() -> void:
+	_pause_menu = PauseMenu.new()
+	_pause_menu.name = "PauseMenu"
+	add_child(_pause_menu)
+	_pause_menu.resume_requested.connect(_resume_from_pause)
+	_pause_menu.restart_requested.connect(_restart_from_pause)
+	_pause_menu.level_select_requested.connect(_quit_to_level_select)
+
+func _can_open_pause() -> bool:
+	if _pause_menu == null or _pause_menu.is_open():
+		return false
+	if _state == null or _respawning:
+		return false
+	if _intro_layer != null:
+		return false
+	return (
+		_state.phase == LevelState.Phase.READY
+		or _state.phase == LevelState.Phase.RUNNING
+	)
+
+func _open_pause_menu() -> void:
+	if not _can_open_pause():
+		return
+	InputHub.input_frozen = true
+	_pause_menu.open_menu()
+	get_tree().paused = true
+
+func _resume_from_pause() -> void:
+	if _pause_menu == null or not _pause_menu.is_open():
+		return
+	get_tree().paused = false
+	_pause_menu.close_menu()
+	if (
+		_intro_layer == null
+		and not _respawning
+		and _state != null
+		and (
+			_state.phase == LevelState.Phase.READY
+			or _state.phase == LevelState.Phase.RUNNING
+		)
+	):
+		InputHub.input_frozen = false
+
+func _restart_from_pause() -> void:
+	get_tree().paused = false
+	if _pause_menu != null:
+		_pause_menu.close_menu()
+	InputHub.input_frozen = true
+	SceneDirector.go_to("res://scenes/level.tscn")
+
+func _quit_to_level_select() -> void:
+	get_tree().paused = false
+	if _pause_menu != null:
+		_pause_menu.close_menu()
+	InputHub.input_frozen = true
+	SceneDirector.go_to("res://scenes/level_select.tscn")
+
 func _on_ball_damaged(_amount: float, _hp: float) -> void:
 	_split_screen.shake(180.0)
 	_hit_points.append(_ball.global_position)
@@ -448,6 +513,8 @@ func _teleport_sequence() -> void:
 	col_shape.set_deferred("disabled", true)
 
 	# 1) 独立 FX 前后分层；地面传送门只加速发亮，仍保持 z=-1。
+	# 震动与传送演出同步起跑：弱 → 强，不阻塞动画时序。
+	HapticHub.play_teleport_rumble(TeleportFx.DURATION)
 	TeleportFx.play(_world, _goal.global_position)
 	_goal.power_up(0.34)
 

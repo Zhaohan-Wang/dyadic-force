@@ -9,6 +9,8 @@ extends Node
 ## UI 动作名统一由这里分发，避免场景直接依赖 Xbox 的 AB 位置。
 const UI_ACCEPT_ACTION: StringName = &"ui_accept"
 const UI_CANCEL_ACTION: StringName = &"ui_cancel"
+## 关卡暂停：键盘 ESC / 手柄菜单键（Xbox Menu、Switch +、PS Options）。
+const UI_MENU_ACTION: StringName = &"ui_menu"
 ## SDL/Godot GUID 中 Nintendo 厂商 ID（0x057e）的小端表示。
 const NINTENDO_GUID_VENDOR: String = "7e05"
 ## 无法从 GUID 判断时使用的 Nintendo 设备名特征。
@@ -69,6 +71,8 @@ var gamma: float = ForceMapper.DEFAULT_GAMMA
 var f_max: float = ForceMapper.DEFAULT_FMAX
 
 func _ready() -> void:
+	# 暂停菜单打开时树会 paused；仍需翻译手柄面键供 UI 确认/取消。
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	_slots = [InputSource.new(), InputSource.new()]
 	_remove_default_face_button_actions()
 	Input.joy_connection_changed.connect(_on_joy_connection_changed)
@@ -118,6 +122,7 @@ func _input(event: InputEvent) -> void:
 	Input.parse_input_event(action_event)
 
 ## 返回指定面键对应的统一 UI 动作；非确认/取消键返回空 StringName。
+## 菜单键不走这里，避免与 is_pause_toggle_event 双重触发。
 func joy_ui_action(joy_id: int, button_index: int) -> StringName:
 	var accept_button: int = JOY_BUTTON_B if is_nintendo_joypad(joy_id) else JOY_BUTTON_A
 	var cancel_button: int = JOY_BUTTON_A if is_nintendo_joypad(joy_id) else JOY_BUTTON_B
@@ -126,6 +131,16 @@ func joy_ui_action(joy_id: int, button_index: int) -> StringName:
 	if button_index == cancel_button:
 		return UI_CANCEL_ACTION
 	return &""
+
+## 是否为打开/关闭暂停菜单的按键边沿（ESC 或手柄菜单键）。
+func is_pause_toggle_event(event: InputEvent) -> bool:
+	var key: InputEventKey = event as InputEventKey
+	if key != null and key.pressed and not key.echo and key.keycode == KEY_ESCAPE:
+		return true
+	var joy: InputEventJoypadButton = event as InputEventJoypadButton
+	if joy != null and joy.pressed and joy.button_index == JOY_BUTTON_START:
+		return true
+	return false
 
 ## 当前手柄的确认键是否按下（Xbox A / Nintendo A）。
 func is_joy_accept_pressed(joy_id: int) -> bool:

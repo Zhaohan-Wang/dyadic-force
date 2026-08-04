@@ -1,5 +1,5 @@
 extends Control
-## 结算界面：星级逐颗弹出 + 整局轨迹回放图 + 用时 / 生命 / 碰撞 / 平稳度。
+## 结算界面：星级逐颗弹出 + 整局轨迹回放图 + 用时 / 生命 / 碰撞 / 团队力度。
 ## 刻意不展示任何单人输入量或贡献占比——只呈现"这一局大家一起跑成什么样"。
 
 ## 轨迹小地图：失败路线虚线淡绘，成功路线实线加粗
@@ -68,13 +68,13 @@ class TrailMap:
 	func recommended_height(available_width: float) -> float:
 		var bounds: Rect2 = _content_bounds()
 		if bounds.size.x <= 0.0:
-			return 180.0
+			return 160.0
 		var aspect_height: float = (
 			maxf(available_width - 48.0, 1.0)
 			* bounds.size.y / bounds.size.x
 			+ 48.0
 		)
-		return clampf(aspect_height, 150.0, 260.0)
+		return clampf(aspect_height, 140.0, 200.0)
 
 	## 汇总成功/失败轨迹与标记点，得到真正有信息的世界坐标包围盒。
 	func _content_bounds() -> Rect2:
@@ -140,6 +140,12 @@ class TrailMap:
 					draw_on = not draw_on
 					budget = dash_len if draw_on else gap_len
 
+const PANEL_WIDTH: float = 780.0
+const PANEL_PAD_X: float = 44.0
+const PANEL_PAD_Y: float = 28.0
+## 除路线图外的固定占位：标题/星星/6 行统计/按钮/间距/内边距
+const PANEL_CHROME_HEIGHT: float = 560.0
+
 func _ready() -> void:
 	_build()
 
@@ -162,7 +168,7 @@ func _build() -> void:
 	var success: bool = bool(result.get("success", false))
 	var stars: int = int(result.get("stars", 0))
 
-	# 先准备路线数据，用实际内容宽高比决定地图和面板高度。
+	# 先准备路线数据，用实际内容宽高比决定地图高度。
 	var map: TrailMap = TrailMap.new()
 	map.island_px = result.get("island", Vector2.ZERO) as Vector2
 	map.trail = result.get("trail", PackedVector2Array()) as PackedVector2Array
@@ -170,67 +176,66 @@ func _build() -> void:
 	map.hits = result.get("hits", PackedVector2Array()) as PackedVector2Array
 	map.spawn_p = result.get("spawn", Vector2.ZERO) as Vector2
 	map.goal_p = result.get("goal", Vector2.ZERO) as Vector2
-	var map_height: float = map.recommended_height(692.0)
+	var map_height: float = map.recommended_height(PANEL_WIDTH - PANEL_PAD_X * 2.0)
 
-	# 多出团队力度行后略增高；路线图仍按内容自适应。
-	var panel_height: float = clampf(560.0 + map_height, 700.0, 900.0)
-	var panel_size: Vector2 = Vector2(780.0, panel_height)
+	# 按内容估算高度，保证统计与按钮都在面板内；用 offset 居中，避免改 size 后锚点漂移。
+	var panel_size: Vector2 = Vector2(
+		PANEL_WIDTH,
+		clampf(PANEL_CHROME_HEIGHT + map_height, 720.0, 980.0),
+	)
 	var panel: NinePatchRect = MenuKit.make_panel(panel_size)
-	panel.set_anchors_preset(Control.PRESET_CENTER)
-	panel.position = -panel_size * 0.5
-	panel.size = panel_size
+	_center_control(panel, panel_size)
 	add_child(panel)
 	UiSpring.attach(panel, 0.5, 0.3).pop_in(0.05)
 
 	var box: VBoxContainer = VBoxContainer.new()
 	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	box.offset_left = 44.0
-	box.offset_right = -44.0
-	box.offset_top = 30.0
-	box.offset_bottom = -30.0
-	box.add_theme_constant_override("separation", 10)
+	box.offset_left = PANEL_PAD_X
+	box.offset_right = -PANEL_PAD_X
+	box.offset_top = PANEL_PAD_Y
+	box.offset_bottom = -PANEL_PAD_Y
+	box.add_theme_constant_override("separation", 8)
 	panel.add_child(box)
 
-	# ---- 主标题：结果口号，面板内强调色 + 硬阴影 ----
+	# ---- 主标题 ----
 	var title: Label = MenuKit.make_title_label(
 		GameState.ui("通关！", "LEVEL CLEAR!")
 			if success
 			else GameState.ui("时间到！", "TIME'S UP!"),
-		48,
+		40,
 		MenuKit.COL_ACCENT if success else MenuKit.COL_DANGER,
 		true,
 	)
 	box.add_child(title)
 
-	# ---- 副标题：关名只负责定位，小一档墨色，零描边，绝不抢主标题 ----
+	# ---- 副标题：关名 ----
 	var name_label: Label = MenuKit.make_subtitle_label(
 		GameState.localize_content(str(result.get("level_name", ""))),
-		26,
+		24,
 	)
 	box.add_child(name_label)
 
-	# ---- 星级（代码烘焙的像素金星，未获得为空槽） ----
+	# ---- 星级 ----
 	var stars_row: HBoxContainer = HBoxContainer.new()
 	stars_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	stars_row.add_theme_constant_override("separation", 28)
-	stars_row.custom_minimum_size = Vector2(0, 112)
+	stars_row.add_theme_constant_override("separation", 24)
+	stars_row.custom_minimum_size = Vector2(0, 84)
 	box.add_child(stars_row)
 	for i: int in 3:
 		var earned: bool = i < stars
-		# 三颗星传不同 hold 时长，闪光节奏彼此错开
-		var star: TextureRect = MenuKit.make_pixel_star(earned, 100.0, 1.1 + float(i) * 0.35)
+		var star: TextureRect = MenuKit.make_pixel_star(earned, 76.0, 1.1 + float(i) * 0.35)
 		stars_row.add_child(star)
 		var spring: UiSpring = UiSpring.attach(star, 0.5, 0.4)
 		spring.pop_in(0.35 + float(i) * 0.18, 0.2 if earned else 0.6)
 
-	# ---- 轨迹图：按真实路线包围盒紧凑显示 ----
+	# ---- 轨迹图 ----
 	map.custom_minimum_size = Vector2(0.0, map_height)
 	map.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	map.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	map.clip_contents = false
 	box.add_child(map)
 
-	# ---- 数据行 ----
+	# ---- 数据行（不含实验条件 / 稳定性）----
 	var elapsed: float = float(result.get("elapsed", 0.0))
 	var t: int = int(floor(elapsed))
 	box.add_child(_make_stat_row(GameState.ui("用时", "TIME"), "%02d:%02d" % [t / 60, t % 60]))
@@ -241,8 +246,6 @@ func _build() -> void:
 	))
 	var hit_count: int = (result.get("hits", PackedVector2Array()) as PackedVector2Array).size()
 	box.add_child(_make_stat_row(GameState.ui("碰撞", "BUMPS"), str(hit_count)))
-	box.add_child(_make_stat_row(GameState.ui("稳定性", "RIDE"), _stability_text(hit_count)))
-	# 团队级力度指标（不展示单人贡献）
 	var avg_force: float = float(result.get("avg_force", 0.0))
 	var full_ratio: float = float(result.get("full_push_ratio", 0.0))
 	var fine_ratio: float = float(result.get("fine_control_ratio", 0.0))
@@ -253,18 +256,12 @@ func _build() -> void:
 	box.add_child(_make_stat_row(
 		GameState.ui("精细控制", "FINE CTRL"), "%d%%" % int(round(fine_ratio * 100.0))
 	))
-	var condition_key: String = str(result.get("experiment_condition", "baseline"))
-	var condition: String = (
-		GameState.ui("扰动", "PERTURBATION")
-		if condition_key == "perturbation"
-		else GameState.ui("基线", "BASELINE")
-	)
-	box.add_child(_make_stat_row(GameState.ui("实验条件", "CONDITION"), condition))
 
 	# ---- 按钮行 ----
 	var actions: HBoxContainer = HBoxContainer.new()
 	actions.alignment = BoxContainer.ALIGNMENT_CENTER
 	actions.add_theme_constant_override("separation", 16)
+	actions.custom_minimum_size = Vector2(0, 96)
 	box.add_child(actions)
 
 	var retry: Button = _make_icon_button(GameState.ui("重试", "RETRY"), "retry")
@@ -293,33 +290,51 @@ func _build() -> void:
 		actions.add_child(title_btn)
 		retry.grab_focus.call_deferred()
 
+## 锚点钉在父级中心，用对称 offset 定宽高，避免改 size/position 后跑去左上角。
+func _center_control(control: Control, size: Vector2) -> void:
+	control.anchor_left = 0.5
+	control.anchor_top = 0.5
+	control.anchor_right = 0.5
+	control.anchor_bottom = 0.5
+	control.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	control.grow_vertical = Control.GROW_DIRECTION_BOTH
+	control.offset_left = -size.x * 0.5
+	control.offset_top = -size.y * 0.5
+	control.offset_right = size.x * 0.5
+	control.offset_bottom = size.y * 0.5
+
 ## 图标 + 文字的结算按钮
 func _make_icon_button(text: String, icon_name: String) -> Button:
-	var btn: Button = MenuKit.make_big_button(text, 24, Vector2(196, 96))
+	var btn: Button = MenuKit.make_big_button(text, 24, Vector2(196, 92))
 	btn.icon = MenuKit.make_button_icon(icon_name, 2)
 	btn.add_theme_constant_override("h_separation", 10)
 	btn.expand_icon = false
 	return btn
 
-## 轻度稳定状态：按碰撞次数给个定性描述，不做数值评分
-func _stability_text(hit_count: int) -> String:
-	if hit_count == 0:
-		return GameState.ui("平滑", "SMOOTH")
-	if hit_count <= 2:
-		return GameState.ui("稳定", "STEADY")
-	if hit_count <= 5:
-		return GameState.ui("颠簸", "BUMPY")
-	return GameState.ui("失控", "WILD")
-
-## 一行结算数据：左名称右数值
+## 一行结算数据：左名称右数值。
+## 数值用 Press Start 2P；字号 16（8 的倍数），视觉上与左侧 24px 中文标签对齐，不再头重脚轻。
 func _make_stat_row(label_text: String, value_text: String) -> Control:
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 16)
-	var name_label: Label = MenuKit.make_panel_label(label_text, 26, 0.55)
+	row.custom_minimum_size = Vector2(0, 34)
+	var name_label: Label = MenuKit.make_panel_label(label_text, 24, 0.60)
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(name_label)
-	var value_label: Label = MenuKit.make_panel_label(value_text, 26)
+
+	var value_label: Label = Label.new()
+	value_label.text = value_text
 	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	value_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	value_label.clip_text = false
+	value_label.size_flags_horizontal = Control.SIZE_SHRINK_END
+	value_label.custom_minimum_size = Vector2(140, 0)
+	var settings: LabelSettings = LabelSettings.new()
+	settings.font = MenuKit.prepare_title_font()
+	settings.font_size = 16
+	settings.font_color = MenuKit.COL_INK
+	settings.outline_size = 0
+	value_label.label_settings = settings
 	row.add_child(value_label)
 	return row
 
