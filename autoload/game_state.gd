@@ -9,8 +9,20 @@ signal settings_changed
 var current_level: LevelDef = null
 ## 上一关结算结果（ResultsScreen 读取）
 var last_result: Dictionary = {}
-## 实验条件：baseline = 关闭第 3 关输入缩减；perturbation = 启用
+## 当前运行的去标识化实验信息；只接受短编号，禁止姓名和自由文本。
+var dyad_id: String = ""
+var participant_A: String = ""
+var participant_B: String = ""
+## 关系条件：unspecified / strangers / friends / partners。
+var relation_condition: String = "unspecified"
+## 实验条件：baseline = 关闭输入缩减；perturbation = 启用。
 var experiment_condition: String = "baseline"
+## A 对应的设备槽位；0=P1/左屏，1=P2/右屏。B 自动使用另一个槽位。
+var participant_a_slot: int = 0
+## CSV/日志侧读取的稳定分配编码。
+var side_assignment: String = "A=P1;B=P2"
+## 完成录入后锁定元数据，选关页只能读取。
+var experiment_setup_locked: bool = false
 ## 当前试次会话 ID（日志文件名用）
 var session_id: String = ""
 
@@ -22,6 +34,10 @@ var master_volume: float = 1.0
 var haptic_strength: float = 0.85
 ## 界面语言：默认中文；"en" 为英文。
 var language: String = "zh"
+## 实验模式：开启后走录入页并写实验 CSV；默认关闭。
+var experiment_mode: bool = false
+## 调试模式：选关页教学关下显示物理滑条；默认关闭。
+var debug_mode: bool = false
 
 ## 已通关的关卡 ID 列表
 var cleared_levels: PackedStringArray = PackedStringArray()
@@ -30,6 +46,17 @@ const SETTINGS_PATH: String = "user://settings.cfg"
 const PROGRESS_PATH: String = "user://progress.cfg"
 const LANGUAGE_ZH: String = "zh"
 const LANGUAGE_EN: String = "en"
+const ID_MAX_LENGTH: int = 16
+const RELATION_CONDITIONS: PackedStringArray = [
+	"unspecified",
+	"strangers",
+	"friends",
+	"partners",
+]
+const EXPERIMENT_CONDITIONS: PackedStringArray = [
+	"baseline",
+	"perturbation",
+]
 
 ## 关卡资源继续保存稳定的英文实验文本，界面显示时按当前语言映射。
 const CONTENT_ZH: Dictionary[String, String] = {
@@ -37,6 +64,8 @@ const CONTENT_ZH: Dictionary[String, String] = {
 	"LEVEL 1 - MEADOW": "第 1 关 · 草地",
 	"LEVEL 2 - HEDGE MAZE": "第 2 关 · 树篱迷宫",
 	"LEVEL 3 - FINAL DASH": "第 3 关 · 最终冲刺",
+	"LEVEL 4 - SWITCHBACK FIELD": "第 4 关 · 折返原野",
+	"LEVEL 5 - SPIRAL GROVE": "第 5 关 · 螺旋林地",
 	"FULL PUSH TO START AND ACCELERATE": "将摇杆推到底，开始移动并加速",
 	"USE HALF PUSH TO STEER AND AIM": "使用中等力度微调方向",
 	"RELEASE EARLY TO BRAKE BEFORE TURNS": "转弯前提前松开摇杆进行减速",
@@ -46,13 +75,24 @@ const CONTENT_ZH: Dictionary[String, String] = {
 	"PARK THE BALL ON THE SWIRLING PORTAL": "将球停在旋转的传送门上",
 	"OFFICIAL LEVELS ARE TIMED!": "正式关卡有时间限制！",
 	"REACH THE PORTAL WITHIN 60 SECONDS": "请在 60 秒内到达传送门",
+	"REACH THE PORTAL WITHIN 80 SECONDS": "请在 80 秒内到达传送门",
+	"REACH THE PORTAL WITHIN 90 SECONDS": "请在 90 秒内到达传送门",
 	"OR THE RUN IS OVER.": "否则本次挑战结束。",
 	"THE ROUTE GETS LONGER AND TRICKIER.": "路线会变得更长、更复杂。",
 	"FOLLOW THE ARROWS ON THE GROUND.": "请跟随地面上的箭头。",
+	"NARROW LANES — SLOW DOWN BEFORE TURNS.": "窄道通行——转弯前请减速。",
 	"SIGNAL JAM ALERT!": "信号干扰警告！",
 	"ONLY IN PERTURBATION CONDITION:": "仅在扰动实验条件下：",
-	"FROM 5S TO 35S ONE INPUT DROPS TO ~65%.": "第 5～35 秒，一名玩家的输入会降至约 65%。",
+	"FROM 8S TO 45S ONE INPUT DROPS TO 50%.": "第 8～45 秒，一名玩家的输入会降至 50%。",
+	"FROM 8S TO 50S ONE INPUT DROPS TO 50%.": "第 8～50 秒，一名玩家的输入会降至 50%。",
+	"FROM 10S TO 65S ONE INPUT DROPS TO 50%.": "第 10～65 秒，一名玩家的输入会降至 50%。",
+	"WATCH THE PURPLE ZONE ON THE TIMER.": "请留意计时条上的紫色干扰区。",
 	"BASELINE RUNS HAVE NO SIGNAL JAM.": "基线条件下不会出现信号干扰。",
+	"THREE WIDE LANES. TWO FULL TURNS.": "三条宽道，两次完整折返。",
+	"USE THE OPEN ENDS TO SWITCH DIRECTION.": "从道路开口处完成换向。",
+	"BUILD SPEED ON THE STRAIGHTS; BRAKE BEFORE EACH TURN.": "直道可以加速，入弯前记得减速。",
+	"FOLLOW THE SPIRAL FROM THE OUTSIDE IN.": "沿螺旋路线从外圈进入中心。",
+	"EVERY CORNER TIGHTENS THE TURN.": "越往里走，转弯越紧。",
 }
 
 ## 关卡推进顺序（选关列表与结算"下一关"共用）
@@ -61,6 +101,8 @@ const LEVEL_ORDER: PackedStringArray = [
 	"res://levels/level_1.tres",
 	"res://levels/level_2.tres",
 	"res://levels/level_3.tres",
+	"res://levels/level_4.tres",
+	"res://levels/level_5.tres",
 ]
 
 ## 按 level_id 查找下一关资源路径；已是最后一关返回空串
@@ -76,6 +118,72 @@ func next_level_path(level_id: String) -> String:
 func _ready() -> void:
 	load_settings()
 	load_progress()
+	PhysicsTuning.ensure_loaded()
+
+## 开始游戏后的第一站：实验模式进录入页，否则直达配对。
+func start_flow_scene() -> String:
+	if experiment_mode:
+		return "res://scenes/experiment_setup_screen.tscn"
+	return "res://scenes/pairing_screen.tscn"
+
+## 配对页返回目标：实验模式回录入，否则回标题。
+func pairing_back_scene() -> String:
+	if experiment_mode:
+		return "res://scenes/experiment_setup_screen.tscn"
+	return "res://scenes/title_screen.tscn"
+
+## 实验组号与参与者编号只保留数字，避免姓名、缩写和自由文本混入数据。
+func sanitize_experiment_id(raw_value: String) -> String:
+	var result: String = ""
+	for index: int in raw_value.length():
+		var character: String = raw_value.substr(index, 1)
+		var codepoint: int = character.unicode_at(0)
+		if codepoint >= 48 and codepoint <= 57:
+			result += character
+		if result.length() >= ID_MAX_LENGTH:
+			break
+	return result
+
+## 校验并锁定实验信息；成功后本次运行中只能由 Setup 页重新录入。
+func lock_experiment_setup(
+	next_dyad_id: String,
+	next_participant_a: String,
+	next_participant_b: String,
+	next_relation: String,
+	next_condition: String,
+	next_a_slot: int,
+) -> bool:
+	var clean_dyad: String = sanitize_experiment_id(next_dyad_id)
+	var clean_a: String = sanitize_experiment_id(next_participant_a)
+	var clean_b: String = sanitize_experiment_id(next_participant_b)
+	if clean_dyad.is_empty() or clean_a.is_empty() or clean_b.is_empty():
+		return false
+	if clean_a == clean_b:
+		return false
+	if not RELATION_CONDITIONS.has(next_relation):
+		return false
+	if not EXPERIMENT_CONDITIONS.has(next_condition):
+		return false
+	dyad_id = clean_dyad
+	participant_A = clean_a
+	participant_B = clean_b
+	relation_condition = next_relation
+	experiment_condition = next_condition
+	participant_a_slot = clampi(next_a_slot, 0, 1)
+	side_assignment = "A=P1;B=P2" if participant_a_slot == 0 else "A=P2;B=P1"
+	experiment_setup_locked = true
+	return true
+
+## 返回设备槽位对应的参与者标签（A/B）。
+func participant_letter_for_slot(slot: int) -> String:
+	return "A" if slot == participant_a_slot else "B"
+
+## 返回设备槽位对应的去标识化参与者编号。
+func participant_id_for_slot(slot: int) -> String:
+	return participant_A if slot == participant_a_slot else participant_B
+
+func screen_side_for_slot(slot: int) -> String:
+	return ui("左屏", "LEFT") if slot == 0 else ui("右屏", "RIGHT")
 
 ## 标记某关已通关
 func mark_cleared(level_id: String) -> void:
@@ -103,6 +211,8 @@ func load_settings() -> void:
 	language = str(cfg.get_value("general", "language", LANGUAGE_ZH))
 	if language != LANGUAGE_EN:
 		language = LANGUAGE_ZH
+	experiment_mode = bool(cfg.get_value("modes", "experiment_mode", false))
+	debug_mode = bool(cfg.get_value("modes", "debug_mode", false))
 
 ## 保存设置到磁盘
 func save_settings() -> void:
@@ -112,6 +222,8 @@ func save_settings() -> void:
 	cfg.set_value("audio_visual", "master_volume", master_volume)
 	cfg.set_value("audio_visual", "haptic_strength", haptic_strength)
 	cfg.set_value("general", "language", language)
+	cfg.set_value("modes", "experiment_mode", experiment_mode)
+	cfg.set_value("modes", "debug_mode", debug_mode)
 	cfg.save(SETTINGS_PATH)
 	settings_changed.emit()
 

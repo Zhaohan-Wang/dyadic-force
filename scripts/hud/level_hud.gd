@@ -29,8 +29,17 @@ var _clock: TextureRect
 var _clock_spring: UiSpring
 ## “输入缩减”时段（x=开始秒 y=结束秒；ZERO = 无）与时间轴上的警示带
 const COL_JAM: Color = Color("8a5cf5")
+const COL_JAM_HOT: Color = Color("c084fc")
 var _dampen_window: Vector2 = Vector2.ZERO
 var _dampen_mark: ColorRect = null
+var _dampen_label: Control = null
+var _timer_frame: NinePatchRect = null
+## 钟表旁实时增益徽章（干扰进行中才显示）
+var _jam_badge: Control = null
+var _jam_badge_label: Control = null
+var _jam_slot: int = -1
+var _jam_factor: float = 1.0
+var _clock_base_modulate: Color = Color.WHITE
 
 func setup(
 	state: LevelState,
@@ -110,6 +119,7 @@ func _build_timer_bar() -> void:
 	frame.position = Vector2(-bar_w * 0.5, 24)
 	frame.size = Vector2(bar_w, bar_h)
 	_root.add_child(frame)
+	_timer_frame = frame
 
 	# 轨道底（比填充深一点，空的部分看得出"已流逝"）
 	_bar_inner_x = 18.0
@@ -128,7 +138,7 @@ func _build_timer_bar() -> void:
 	_bar_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	frame.add_child(_bar_fill)
 
-	# “输入缩减”时段：紫色警示带叠在时间轴对应区间上（比轨道略高，读作"区域"）
+	# 紫色干扰带叠在填充之上，否则绿条会完全盖住
 	if _dampen_window != Vector2.ZERO and _time_total > 0.0:
 		_build_dampen_mark(frame)
 
@@ -142,6 +152,9 @@ func _build_timer_bar() -> void:
 	_clock.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	frame.add_child(_clock)
 	_clock_spring = UiSpring.attach(_clock, 0.35, 0.4)
+	_clock_base_modulate = _clock.modulate
+
+	_build_jam_badge(frame)
 
 	# 秒数：条下方世界字幕，轻描边保证草地上可读，但不抢进度条本体
 	_time_label = MenuKit.make_pixel_outline_text("00:00", 32, MenuKit.COL_CREAM, 3)
@@ -158,21 +171,68 @@ func _build_dampen_mark(frame: NinePatchRect) -> void:
 		+ _bar_inner_w * (1.0 - clampf(_dampen_window.y / _time_total, 0.0, 1.0))
 	var x_right: float = _bar_inner_x \
 		+ _bar_inner_w * (1.0 - clampf(_dampen_window.x / _time_total, 0.0, 1.0))
-	# 主警示带：比轨道上下各高出 4px，半透明盖在填充之上
-	_dampen_mark = ColorRect.new()
-	_dampen_mark.position = Vector2(x_left, 16.0)
-	_dampen_mark.size = Vector2(x_right - x_left, 32.0)
-	_dampen_mark.color = Color(COL_JAM, 0.4)
-	_dampen_mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	frame.add_child(_dampen_mark)
-	# 两端实心竖线刻度，标出时段边界
-	for x: float in [x_left, x_right - 3.0]:
+	var band_w: float = maxf(x_right - x_left, 8.0)
+	# 底衬：更深一档，绿条盖不住时仍能认出干扰区
+	var under: ColorRect = ColorRect.new()
+	under.position = Vector2(x_left, 14.0)
+	under.size = Vector2(band_w, 36.0)
+	under.color = Color(COL_JAM, 0.55)
+	under.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame.add_child(under)
+	_dampen_mark = under
+	# 两端实心竖线刻度
+	for x: float in [x_left, x_left + band_w - 4.0]:
 		var tick: ColorRect = ColorRect.new()
-		tick.position = Vector2(x, 16.0)
-		tick.size = Vector2(3.0, 32.0)
-		tick.color = COL_JAM
+		tick.position = Vector2(x, 12.0)
+		tick.size = Vector2(4.0, 40.0)
+		tick.color = COL_JAM_HOT
 		tick.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		frame.add_child(tick)
+	# 带上标签：JAM / 干扰
+	_dampen_label = MenuKit.make_pixel_outline_text(
+		GameState.ui("干扰", "JAM"), 18, COL_JAM_HOT, 2
+	)
+	_dampen_label.position = Vector2(x_left + 6.0, -2.0)
+	_dampen_label.size = Vector2(80.0, 24.0)
+	_dampen_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame.add_child(_dampen_label)
+
+## 钟表旁增益徽章：显示被砍的是 P1/P2，以及当前百分比
+func _build_jam_badge(frame: NinePatchRect) -> void:
+	_jam_badge = Control.new()
+	_jam_badge.visible = false
+	_jam_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_jam_badge.size = Vector2(120, 36)
+	frame.add_child(_jam_badge)
+	var bg: ColorRect = ColorRect.new()
+	bg.name = "Bg"
+	bg.size = Vector2(120, 32)
+	bg.color = Color(COL_JAM, 0.92)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_jam_badge.add_child(bg)
+	_jam_badge_label = MenuKit.make_pixel_outline_text("P1 50%", 18, MenuKit.COL_CREAM, 2)
+	_jam_badge_label.position = Vector2(6, 4)
+	_jam_badge_label.size = Vector2(110, 28)
+	_jam_badge_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_jam_badge.add_child(_jam_badge_label)
+
+## 关卡通知：slot=-1 表示干扰结束；factor 为被缩减玩家的增益（约 0.5）。
+func set_dampen_active(slot: int, factor: float) -> void:
+	_jam_slot = slot
+	_jam_factor = factor
+	if _jam_badge == null or _clock == null:
+		return
+	if slot < 0:
+		_jam_badge.visible = false
+		_clock.modulate = _clock_base_modulate
+		return
+	var pct: int = int(round(factor * 100.0))
+	var text: String = GameState.ui("P%d %d%%" % [slot + 1, pct], "P%d %d%%" % [slot + 1, pct])
+	MenuKit.set_pixel_outline_text(_jam_badge_label, text)
+	_jam_badge.visible = true
+	_clock.modulate = COL_JAM_HOT
+	if _clock_spring != null:
+		_clock_spring.punch(0.7)
 
 ## 练习关：世界字幕级 PRACTICE 标签——交代"无倒计时"，不抢红心与教程气泡
 func _build_practice_tag() -> void:
@@ -259,11 +319,21 @@ func _on_time(time_left: float, elapsed: float, timed: bool) -> void:
 			_bar_inner_x + _bar_inner_w * ratio - 28.0,
 			_bar_inner_x - 16.0, _bar_inner_x + _bar_inner_w - 28.0
 		)
-		# “输入缩减”进行中：警示带呼吸脉动提醒玩家正处于该时段
+		# 增益徽章贴在钟表左侧，跟随钟表移动
+		if _jam_badge != null:
+			_jam_badge.position = Vector2(_clock.position.x - 128.0, 8.0)
+		# “输入缩减”时段：警示带呼吸；进行中更亮
 		if _dampen_mark != null:
 			var inside: bool = elapsed >= _dampen_window.x and elapsed < _dampen_window.y
-			var mark_a: float = 0.55 + 0.25 * sin(elapsed * 7.0) if inside else 0.4
-			_dampen_mark.color = Color(COL_JAM, mark_a)
+			var active: bool = _jam_slot >= 0
+			var mark_a: float = 0.45
+			if active:
+				mark_a = 0.72 + 0.22 * sin(elapsed * 9.0)
+			elif inside:
+				mark_a = 0.55 + 0.15 * sin(elapsed * 6.0)
+			_dampen_mark.color = Color(COL_JAM if not active else COL_JAM_HOT, mark_a)
+			if _dampen_label != null:
+				_dampen_label.modulate.a = 1.0 if (inside or active) else 0.75
 		# 时间紧张：每跳一秒钟表蹦一下（越紧张越用力）
 		if t != _prev_seconds and (ratio < 0.3 or time_left < 12.0):
 			_clock_spring.punch(0.65 if time_left < 12.0 else 0.4)

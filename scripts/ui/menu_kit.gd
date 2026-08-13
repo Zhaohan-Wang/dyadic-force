@@ -96,6 +96,7 @@ const SYMBOL_KEY_REGIONS: Dictionary = {
 const PAD_REGIONS: Dictionary = {
 	"a": Rect2(0, 64, 16, 16),
 	"b": Rect2(0, 96, 16, 16),
+	"x": Rect2(0, 80, 16, 16),
 	"dpad": Rect2(0, 128, 16, 16),
 }
 
@@ -261,6 +262,7 @@ static func make_world_caption(text: String, size: int = 22) -> Control:
 
 ## 场景背景上的任意文字：以方形核扩张深色字形，再叠加前景字面。
 ## 返回 Control；动态更新必须使用 set_pixel_outline_text/color。
+## 会写入 custom_minimum_size，才能在 HBox/VBox 中按真实字宽排开，避免叠字。
 static func make_pixel_outline_text(
 	text: String,
 	size: int,
@@ -273,6 +275,8 @@ static func make_pixel_outline_text(
 		text, size, Color(COL_OUTLINE, 0.96)
 	)
 	var radius: int = maxi(1, outline_radius)
+	root.set_meta("pixel_outline_radius", radius)
+	root.set_meta("pixel_outline_font_size", size)
 	for offset_y: int in range(-radius, radius + 1):
 		for offset_x: int in range(-radius, radius + 1):
 			if offset_x == 0 and offset_y == 0:
@@ -285,6 +289,7 @@ static func make_pixel_outline_text(
 			))
 	var face_settings: LabelSettings = _pixel_outline_settings(text, size, color)
 	root.add_child(_pixel_outline_layer(text, face_settings, Vector2.ZERO, true))
+	_apply_pixel_outline_size(root, text, size, radius)
 	return root
 
 ## 更新多层像素描边文字的内容。
@@ -293,6 +298,26 @@ static func set_pixel_outline_text(root: Control, text: String) -> void:
 		var layer: Label = child as Label
 		if layer != null:
 			layer.text = text
+	var font_size: int = int(root.get_meta("pixel_outline_font_size", 22))
+	var radius: int = int(root.get_meta("pixel_outline_radius", 2))
+	_apply_pixel_outline_size(root, text, font_size, radius)
+
+## 按字形实测宽度给像素描边文字定最小尺寸，供容器布局使用。
+static func _apply_pixel_outline_size(
+	root: Control,
+	text: String,
+	font_size: int,
+	outline_radius: int,
+) -> void:
+	var font: Font = _font_for_text(text)
+	var measured: Vector2 = font.get_string_size(
+		text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, font_size
+	)
+	var pad: float = float(maxi(1, outline_radius) * 2)
+	root.custom_minimum_size = Vector2(
+		ceili(measured.x + pad),
+		ceili(maxf(measured.y, float(font_size)) + pad),
+	)
 
 ## 更新多层像素描边文字的前景颜色，不改变深色外轮廓。
 static func set_pixel_outline_color(root: Control, color: Color) -> void:
@@ -505,6 +530,40 @@ static func make_big_button(text: String, font_px: int = 28, min_size: Vector2 =
 			btn.grab_focus()
 	)
 	return btn
+
+## 编号网格与枚举行使用的紧凑按钮；橙色边框让键盘/手柄焦点始终可见。
+static func make_compact_button(text: String, min_size: Vector2 = Vector2(160, 58)) -> Button:
+	var button: Button = Button.new()
+	button.text = text
+	button.custom_minimum_size = min_size
+	button.focus_mode = Control.FOCUS_ALL
+	button.add_theme_font_override("font", _font_for_text(text))
+	button.add_theme_font_size_override("font_size", 20)
+	button.add_theme_color_override("font_color", COL_INK)
+	button.add_theme_color_override("font_hover_color", COL_ACCENT)
+	button.add_theme_color_override("font_focus_color", COL_ACCENT)
+
+	var normal: StyleBoxFlat = StyleBoxFlat.new()
+	normal.bg_color = Color(COL_CREAM, 0.96)
+	normal.border_color = Color(COL_OUTLINE, 0.55)
+	normal.set_border_width_all(3)
+	normal.set_corner_radius_all(5)
+	button.add_theme_stylebox_override("normal", normal)
+	button.add_theme_stylebox_override("hover", normal)
+
+	var focus: StyleBoxFlat = normal.duplicate() as StyleBoxFlat
+	focus.border_color = COL_ACCENT
+	focus.set_border_width_all(6)
+	button.add_theme_stylebox_override("focus", focus)
+
+	var pressed: StyleBoxFlat = normal.duplicate() as StyleBoxFlat
+	pressed.bg_color = Color("eed7a8")
+	button.add_theme_stylebox_override("pressed", pressed)
+	var spring: UiSpring = UiSpring.attach(button, 0.35, 0.3)
+	button.focus_entered.connect(func() -> void: spring.set_scale_target(1.06))
+	button.focus_exited.connect(func() -> void: spring.set_scale_target(1.0))
+	button.mouse_entered.connect(func() -> void: button.grab_focus())
+	return button
 
 ## 方块勾选/图标按钮用的九宫格 StyleBox（像素圆角）
 static func make_square_stylebox() -> StyleBoxTexture:

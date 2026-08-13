@@ -16,6 +16,7 @@ var _builder: WorldBuilder
 var _health: BallHealth
 var _goal: GoalArea
 var _hud: LevelHud
+var _physics_debug: PhysicsDebugPanel
 var _respawning: bool = false
 ## 教程推进用：记录已触发的步骤条件
 var _tut_flags: Dictionary = {}
@@ -32,17 +33,20 @@ var _hit_points: PackedVector2Array = PackedVector2Array()
 var _intro_layer: CanvasLayer = null
 ## 关卡内暂停菜单
 var _pause_menu: PauseMenu = null
+var _trial_closed: bool = false
 
 ## ---- “输入缩减”机制（第 3 关） ----
-## 缩减到原输入的基准比例（实际每段在 ±0.05 内浮动）
-const DAMPEN_FACTOR: float = 0.65
-## 单次缩减持续时长范围（秒），约 3 秒一段
-const DAMPEN_BURST_MIN_S: float = 2.4
-const DAMPEN_BURST_MAX_S: float = 3.4
-## 当前被缩减的槽位（-1 = 尚未开始）
+## 缩减到原输入的一半，降幅必须一眼可感（±0.03 微浮动）
+const DAMPEN_FACTOR: float = 0.50
+## 单次缩减持续时长范围（秒）；稍长以便看清钟表状态切换
+const DAMPEN_BURST_MIN_S: float = 3.2
+const DAMPEN_BURST_MAX_S: float = 4.6
+## 当前被缩减的槽位（-1 = 尚未开始 / 时段外）
 var _dampen_slot: int = -1
 ## 当前缩减段剩余时长（秒）
 var _dampen_left: float = 0.0
+## 当前实际增益（供 HUD）
+var _dampen_factor: float = 1.0
 ## 缩减段随机源（挑人 / 时长 / 幅度）
 var _dampen_rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
@@ -72,11 +76,14 @@ func _ready() -> void:
 	_ball.global_position = _def.spawn_point
 	_ball.linear_velocity = Vector2.ZERO
 	_ball.angular_velocity = 0.0
+	# 调试调参（若有本地文件）在开局统一套到球上。
+	PhysicsTuning.apply_to_ball(_ball)
 
 	_spawn_spawn_marker()
 	_spawn_goal()
 	_setup_health()
 	_setup_hud()
+	_setup_physics_debug()
 	_setup_pause_menu()
 
 	var island_px: Vector2i = _builder.island_size_px()
@@ -93,19 +100,34 @@ func _ready() -> void:
 
 	_state.ensure_tutorial_started()
 	_state.phase_changed.connect(_on_phase_changed)
-	# 开局即开始实验日志（含 READY 阶段的输入）
-	ExperimentLog.begin_session(_def.level_id, GameState.experiment_condition)
+	# 开局即建立不可覆盖 trial（含 READY 阶段输入）。
+	if not ExperimentLog.begin_trial(_def, str(GameState.get("experiment_condition"))):
+		push_error("Level: 实验日志初始化失败")
+		_trial_closed = true
+		InputHub.input_frozen = true
+		set_physics_process(false)
+		_show_logging_failure()
+		return
 
 	# 正式关开场须知：弹窗展示期间输入冻结，玩家按任意键确认后才正式开始
 	if not _def.intro_lines.is_empty():
 		_show_intro_popup()
+	else:
+		ExperimentLog.log_event("intro_dismissed", {"note": "no_intro"})
 
-## 离开关卡时清掉输入增益与日志缓冲
+## 离开关卡时清掉输入增益；session 文件由全局日志器跨 trial 保持打开。
 func _exit_tree() -> void:
 	get_tree().paused = false
 	HapticHub.end_level()
 	InputHub.reset_gains()
-	ExperimentLog.end_session()
+	if not _trial_closed:
+		ExperimentLog.log_event("quit_mid_trial", {"note": "level_tree_exit"})
+		_finish_trial("quit", "level_tree_exit")
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST and not _trial_closed:
+		ExperimentLog.log_event("app_abort", {"outcome": "aborted", "note": "window_close"})
+		_finish_trial("aborted", "window_close")
 
 func _physics_process(delta: float) -> void:
 	if _state == null:
@@ -126,9 +148,8 @@ func _physics_process(delta: float) -> void:
 	# READY / RUNNING 都记采样，保证开局输入可复算
 	if _state.phase == LevelState.Phase.READY or _state.phase == LevelState.Phase.RUNNING:
 		ExperimentLog.log_frame(
-			_state.elapsed,
-			_def.level_id,
-			GameState.experiment_condition,
+			delta,
+			_phase_name(_state.phase),
 			_ball,
 		)
 
@@ -223,44 +244,63 @@ func _dismiss_intro_popup() -> void:
 			fade.tween_property(child, "modulate:a", 0.0, 0.16)
 	fade.chain().tween_callback(layer.queue_free)
 	InputHub.input_frozen = false
+	ExperimentLog.log_event("intro_dismissed")
 
 # ---------- “输入缩减”机制（第 3 关） ----------
 
-## 在缩减时段内：约每 3 秒一段，随机幅度缩到 65% 左右，A/B 交替换人。
+## 在缩减时段内：约每 4 秒一段，一人输入砍到约 50%，A/B 交替换人。
 ## 仅 experiment_condition == "perturbation" 时启用，避免基线试次被混淆。
 func _update_input_dampen(delta: float) -> void:
 	if _def.dampen_window == Vector2.ZERO:
 		return
 	if GameState.experiment_condition != "perturbation":
 		if _dampen_slot != -1:
-			_dampen_slot = -1
-			InputHub.reset_gains()
+			_clear_dampen_state()
 		return
 	var t: float = _state.elapsed
 	var inside: bool = t >= _def.dampen_window.x and t < _def.dampen_window.y
 	if not inside:
-		# 时段外：恢复满增益
 		if _dampen_slot != -1:
-			_dampen_slot = -1
-			InputHub.reset_gains()
+			_clear_dampen_state()
 		return
 	_dampen_left -= delta
 	if _dampen_slot == -1 or _dampen_left <= 0.0:
-		# 新一段：首段随机挑人，其后 A/B 交替；时长与幅度都带随机浮动
+		# 新一段：首段随机挑人，其后 A/B 交替；另一人恢复满增益（相对增幅）
+		if _dampen_slot >= 0:
+			ExperimentLog.log_event("perturb_off", {
+				"slot": _dampen_slot,
+				"gain": _dampen_factor,
+				"note": "burst_switch",
+			})
 		_dampen_slot = _dampen_rng.randi_range(0, 1) if _dampen_slot == -1 else 1 - _dampen_slot
 		_dampen_left = _dampen_rng.randf_range(DAMPEN_BURST_MIN_S, DAMPEN_BURST_MAX_S)
-		var factor: float = clampf(
-			DAMPEN_FACTOR + _dampen_rng.randf_range(-0.05, 0.05), 0.0, 1.0
+		_dampen_factor = clampf(
+			DAMPEN_FACTOR + _dampen_rng.randf_range(-0.03, 0.03), 0.0, 1.0
 		)
-		InputHub.slot_gains[0] = factor if _dampen_slot == 0 else 1.0
-		InputHub.slot_gains[1] = factor if _dampen_slot == 1 else 1.0
-		# 把切换事件写入实验日志
+		InputHub.slot_gains[0] = _dampen_factor if _dampen_slot == 0 else 1.0
+		InputHub.slot_gains[1] = _dampen_factor if _dampen_slot == 1 else 1.0
 		ExperimentLog.log_condition_event(
 			_state.elapsed,
 			_dampen_slot,
-			factor,
+			_dampen_factor,
 			"dampen_burst_start"
 		)
+		if _hud != null:
+			_hud.set_dampen_active(_dampen_slot, _dampen_factor)
+
+func _clear_dampen_state() -> void:
+	if _dampen_slot >= 0:
+		ExperimentLog.log_event("perturb_off", {
+			"slot": _dampen_slot,
+			"gain": _dampen_factor,
+			"note": "window_end",
+		})
+	_dampen_slot = -1
+	_dampen_factor = 1.0
+	_dampen_left = 0.0
+	InputHub.reset_gains()
+	if _hud != null:
+		_hud.set_dampen_active(-1, 1.0)
 
 ## 定期采样球位置，供结算界面画核心轨迹
 func _sample_trail(delta: float) -> void:
@@ -340,12 +380,16 @@ func _spawn_goal() -> void:
 	_world.add_child(_goal)
 	_goal.set_ball(_ball)
 	_goal.reached.connect(_on_goal_reached)
+	_goal.ball_entered.connect(func() -> void: ExperimentLog.log_event("goal_enter"))
+	_goal.ball_left.connect(func() -> void: ExperimentLog.log_event("goal_leave"))
 
 func _setup_health() -> void:
 	_health = BallHealth.new()
 	_health.name = "BallHealth"
 	_ball.add_child(_health)
 	_health.setup(_ball, _state)
+	if not _ball.impacted.is_connected(_on_ball_collision):
+		_ball.impacted.connect(_on_ball_collision)
 	_health.died.connect(_on_ball_died)
 	_health.damaged.connect(_on_ball_damaged)
 	_health.impact_logged.connect(_on_impact_logged)
@@ -360,6 +404,15 @@ func _setup_hud() -> void:
 		dampen_for_hud = Vector2.ZERO
 	_hud.setup(_state, _def.level_name, _def.time_limit, dampen_for_hud)
 
+## 仅教学关 + 调试模式：左侧挂物理滑条，拖动即时生效。
+func _setup_physics_debug() -> void:
+	if _def == null or not _def.is_practice or not GameState.debug_mode:
+		return
+	_physics_debug = PhysicsDebugPanel.new()
+	_physics_debug.name = "PhysicsDebugPanel"
+	add_child(_physics_debug)
+	_physics_debug.setup(_ball)
+
 func _setup_pause_menu() -> void:
 	_pause_menu = PauseMenu.new()
 	_pause_menu.name = "PauseMenu"
@@ -367,6 +420,52 @@ func _setup_pause_menu() -> void:
 	_pause_menu.resume_requested.connect(_resume_from_pause)
 	_pause_menu.restart_requested.connect(_restart_from_pause)
 	_pause_menu.level_select_requested.connect(_quit_to_level_select)
+
+func _show_logging_failure() -> void:
+	var layer: CanvasLayer = CanvasLayer.new()
+	layer.layer = 60
+	add_child(layer)
+	layer.add_child(MenuKit.make_dim_overlay(0.72))
+	var panel_size := Vector2(760, 360)
+	var panel: NinePatchRect = MenuKit.make_panel(panel_size)
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.position = -panel_size * 0.5
+	panel.size = panel_size
+	layer.add_child(panel)
+	var box: VBoxContainer = VBoxContainer.new()
+	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	box.offset_left = 52
+	box.offset_right = -52
+	box.offset_top = 44
+	box.offset_bottom = -44
+	box.add_theme_constant_override("separation", 24)
+	panel.add_child(box)
+	box.add_child(MenuKit.make_title_label(
+		GameState.ui("无法保存实验数据", "CANNOT SAVE EXPERIMENT DATA"),
+		36, MenuKit.COL_DANGER, true
+	))
+	var message: Label = MenuKit.make_panel_label(
+		GameState.ui(
+			"试次尚未开始。请检查数据目录权限或磁盘空间后重试。",
+			"The trial has not started. Check data-folder permissions or disk space, then retry."
+		),
+		23,
+	)
+	message.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(message)
+	var button: Button = MenuKit.make_big_button(
+		GameState.ui("返回标题", "BACK TO TITLE"), 24, Vector2(320, 76)
+	)
+	button.pressed.connect(func() -> void:
+		InputHub.clear_slots()
+		SceneDirector.go_to("res://scenes/title_screen.tscn")
+	)
+	var holder: HBoxContainer = HBoxContainer.new()
+	holder.alignment = BoxContainer.ALIGNMENT_CENTER
+	holder.add_child(button)
+	box.add_child(holder)
+	button.grab_focus.call_deferred()
 
 func _can_open_pause() -> bool:
 	if _pause_menu == null or _pause_menu.is_open():
@@ -384,6 +483,7 @@ func _open_pause_menu() -> void:
 	if not _can_open_pause():
 		return
 	InputHub.input_frozen = true
+	ExperimentLog.log_event("pause", {"phase": _phase_name(_state.phase)})
 	_pause_menu.open_menu()
 	get_tree().paused = true
 
@@ -392,6 +492,7 @@ func _resume_from_pause() -> void:
 		return
 	get_tree().paused = false
 	_pause_menu.close_menu()
+	ExperimentLog.log_event("resume", {"phase": _phase_name(_state.phase)})
 	if (
 		_intro_layer == null
 		and not _respawning
@@ -408,6 +509,8 @@ func _restart_from_pause() -> void:
 	if _pause_menu != null:
 		_pause_menu.close_menu()
 	InputHub.input_frozen = true
+	ExperimentLog.log_event("restart_requested")
+	_finish_trial("restarted")
 	SceneDirector.go_to("res://scenes/level.tscn")
 
 func _quit_to_level_select() -> void:
@@ -415,28 +518,44 @@ func _quit_to_level_select() -> void:
 	if _pause_menu != null:
 		_pause_menu.close_menu()
 	InputHub.input_frozen = true
+	ExperimentLog.log_event("quit_mid_trial", {"note": "level_select_requested"})
+	_finish_trial("quit", "level_select_requested")
 	SceneDirector.go_to("res://scenes/level_select.tscn")
 
 func _on_ball_damaged(_amount: float, _hp: float) -> void:
 	_split_screen.shake(180.0)
 	_hit_points.append(_ball.global_position)
 
-## 把连续撞击强度与伤害写入实验事件日志
+func _on_ball_collision(strength: float) -> void:
+	ExperimentLog.log_event("collision", {
+		"impact_strength": strength,
+		"core_x": _ball.global_position.x,
+		"core_y": _ball.global_position.y,
+	})
+
+## 把实际伤害与致死碰撞写入实验事件日志。
 func _on_impact_logged(strength: float, damage: float, _hp: float) -> void:
-	ExperimentLog.log_impact(
-		_state.elapsed,
-		_def.level_id,
-		GameState.experiment_condition,
-		strength,
-		damage,
-		_ball.global_position,
-	)
+	var common: Dictionary = {
+		"impact_strength": strength,
+		"damage": damage,
+		"remaining_hp": _hp,
+		"core_x": _ball.global_position.x,
+		"core_y": _ball.global_position.y,
+	}
+	ExperimentLog.log_event("damage", common)
+	if _hp <= 0.0:
+		ExperimentLog.log_event("death_collision", common)
 
 func _on_ball_died() -> void:
 	if _respawning or _state.phase == LevelState.Phase.FINISHED:
 		return
 	_respawning = true
 	_state.enter_dead()
+	ExperimentLog.log_event("respawn_start", {
+		"phase": "dead",
+		"core_x": _ball.global_position.x,
+		"core_y": _ball.global_position.y,
+	})
 	InputHub.input_frozen = true
 	await _respawn_sequence()
 
@@ -474,6 +593,9 @@ func _respawn_sequence() -> void:
 	_ball.angular_velocity = 0.0
 	if not _def.is_practice:
 		_state.apply_time_penalty(_def.death_time_penalty)
+		ExperimentLog.log_event("time_penalty", {
+			"time_penalty_s": _def.death_time_penalty,
+		})
 
 	# 4) 出现：满血 + 闪白 + 无敌闪烁，再交还操作
 	_ball.visible = true
@@ -487,6 +609,7 @@ func _respawn_sequence() -> void:
 	await get_tree().create_timer(0.2).timeout
 	InputHub.input_frozen = false
 	_respawning = false
+	ExperimentLog.begin_life()
 
 func _on_goal_reached() -> void:
 	if _state.phase != LevelState.Phase.RUNNING and _state.phase != LevelState.Phase.READY:
@@ -497,7 +620,14 @@ func _on_goal_reached() -> void:
 	var time_ok: bool = _state.timed and _def.time_limit > 0.0 \
 		and _state.time_left >= _def.time_limit * 0.25
 	_state.finish(full_hp, time_ok, _def.is_practice)
+	ExperimentLog.log_event("success", {
+		"core_x": _ball.global_position.x,
+		"core_y": _ball.global_position.y,
+		"outcome": "success",
+	})
 	GameState.mark_cleared(_def.level_id)
+	_finish_trial("success")
+	# 派生 CSV/SVG 已在 end_trial 内同步落盘，结算快照因此包含真实导出状态。
 	GameState.last_result = _build_result(true, _state.stars)
 	await _teleport_sequence()
 	SceneDirector.go_to("res://scenes/results_screen.tscn")
@@ -584,6 +714,8 @@ func _set_ball_white(v: float) -> void:
 
 func _on_failed() -> void:
 	InputHub.input_frozen = true
+	ExperimentLog.log_event("timeout_failure", {"outcome": "timeout"})
+	_finish_trial("timeout")
 	GameState.last_result = _build_result(false, 0)
 	await get_tree().create_timer(0.5).timeout
 	SceneDirector.go_to("res://scenes/results_screen.tscn")
@@ -619,11 +751,33 @@ func _build_result(success: bool, stars: int) -> Dictionary:
 	var summary: Dictionary = ExperimentLog.summary_dict()
 	for key: Variant in summary.keys():
 		result[key] = summary[key]
-	ExperimentLog.end_session()
 	return result
 
-func _on_phase_changed(_phase: LevelState.Phase) -> void:
-	pass
+func _on_phase_changed(phase: LevelState.Phase) -> void:
+	if phase == LevelState.Phase.RUNNING and not _respawning:
+		ExperimentLog.log_event("run_start", {"phase": "running"})
+
+func _finish_trial(outcome: String, note: String = "") -> void:
+	if _trial_closed:
+		return
+	if _dampen_slot >= 0:
+		_clear_dampen_state()
+	ExperimentLog.end_trial(outcome, note)
+	_trial_closed = true
+
+func _phase_name(phase: LevelState.Phase) -> String:
+	match phase:
+		LevelState.Phase.READY:
+			return "ready"
+		LevelState.Phase.RUNNING:
+			return "running"
+		LevelState.Phase.DEAD:
+			return "dead"
+		LevelState.Phase.FINISHED:
+			return "finished"
+		LevelState.Phase.FAILED:
+			return "failed"
+	return "unknown"
 
 ## 根据玩家行为推进练习关教程（含连续力度教学步骤）
 func _update_tutorial_progress() -> void:

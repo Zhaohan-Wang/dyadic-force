@@ -209,21 +209,22 @@ func _spawn_fence_row(start: Vector2, segments: int) -> void:
 # 即物理空隙 ≥ 128px，正常操作不会卡死。坐标改动前务必重新核算。
 
 ## 按关卡 ID 分发手工布局；未知 ID 回退到随机散布。
-## 注意：第 2、3 关刻意共用同一张图（差异将来自输入增益等规则，而非地图）。
+## 第 2、3 关共用 gauntlet；第 4、5 关为加长的独立作者图。
 func _build_authored_layout() -> void:
 	match _level_id:
 		"level_1":
 			_build_level1_layout()
 		"level_2", "level_3":
 			_build_gauntlet_layout()
+		"level_4":
+			_build_level4_layout()
+		"level_5":
+			_build_level5_layout()
 		_:
 			_spawn_obstacles()
 
-## 第 1 关（832x320）：三道闸门缓弯 + 一道窄缝石门。
-## 闸 1 上树墙（x=200，伸到 y=140，球从下过：球心 y ≥ 184）
-## 闸 2 下石墙（x=340，伸到 y=274，球从上过：球心 y ≤ 215）
-## 闸 3 上树墙（x=480，同闸 1）
-## 闸 4 窄缝石门（x=610，上下石柱夹出球心带宽 50px 的缝，中心 y=170）
+## 第 1 关（1120x416）：八道闸门蛇形缓弯，路线长度对齐第 2/3 关量级。
+## 球 R=44；上闸从下过，下闸从上过；窄缝球心带约 50px。
 func _build_level1_layout() -> void:
 	var w: float = float(_island_w * TILE_SIZE)
 	var h: float = float(_island_h * TILE_SIZE)
@@ -233,35 +234,54 @@ func _build_level1_layout() -> void:
 	var trees: Array[PropDef] = _tree_defs()
 	var rocks: Array[PropDef] = _rock_defs()
 
-	for cy: float in [56.0, 98.0, 140.0]:
-		_world.add_child(_make_prop(trees[1], Vector2(200.0, cy)))
-	for cy: float in [300.0, 274.0]:
-		_world.add_child(_make_prop(rocks[0], Vector2(340.0, cy)))
-	_world.add_child(_make_prop(rocks[1], Vector2(358.0, 290.0)))
-	for cy: float in [56.0, 98.0, 140.0]:
-		_world.add_child(_make_prop(trees[0], Vector2(480.0, cy)))
-	# 窄缝石门：上柱 + 下柱
-	for cy: float in [49.0, 75.0, 101.0]:
-		_world.add_child(_make_prop(rocks[0], Vector2(610.0, cy)))
-	for cy: float in [254.0, 280.0, 306.0]:
-		_world.add_child(_make_prop(rocks[0], Vector2(610.0, cy)))
+	# 闸 1 上 → 从下过
+	for cy: float in [56.0, 98.0, 140.0, 180.0]:
+		_world.add_child(_make_prop(trees[1], Vector2(170.0, cy)))
+	# 闸 2 下 → 从上过
+	for cy: float in [380.0, 348.0, 316.0]:
+		_world.add_child(_make_prop(rocks[0], Vector2(300.0, cy)))
+	_world.add_child(_make_prop(rocks[1], Vector2(318.0, 360.0)))
+	# 闸 3 上
+	for cy: float in [56.0, 98.0, 140.0, 180.0]:
+		_world.add_child(_make_prop(trees[0], Vector2(430.0, cy)))
+	# 闸 4 窄缝（中心约 y=220）
+	for cy: float in [56.0, 90.0, 124.0]:
+		_world.add_child(_make_prop(rocks[0], Vector2(560.0, cy)))
+	for cy: float in [330.0, 364.0, 398.0]:
+		_world.add_child(_make_prop(rocks[0], Vector2(560.0, cy)))
+	# 闸 5 上
+	for cy: float in [56.0, 98.0, 140.0, 180.0]:
+		_world.add_child(_make_prop(trees[1], Vector2(690.0, cy)))
+	# 闸 6 下
+	for cy: float in [380.0, 348.0, 316.0]:
+		_world.add_child(_make_prop(rocks[0], Vector2(820.0, cy)))
+	# 闸 7 上
+	for cy: float in [56.0, 98.0, 140.0, 180.0]:
+		_world.add_child(_make_prop(trees[0], Vector2(940.0, cy)))
+	# 闸 8 窄缝收尾
+	for cy: float in [56.0, 90.0, 124.0]:
+		_world.add_child(_make_prop(rocks[0], Vector2(1040.0, cy)))
+	for cy: float in [330.0, 364.0, 398.0]:
+		_world.add_child(_make_prop(rocks[0], Vector2(1040.0, cy)))
 
-	# 地面箭头：只标在该段真实行进方向上（本关以水平缓弯为主）
-	_spawn_guide_arrow(Vector2(130.0, 200.0), Vector2.RIGHT)   # 开局右行
-	_spawn_guide_arrow(Vector2(200.0, 220.0), Vector2.RIGHT)   # 闸 1 下方通道
-	_spawn_guide_arrow(Vector2(340.0, 170.0), Vector2.RIGHT)   # 闸 2 上方通道
-	_spawn_guide_arrow(Vector2(480.0, 220.0), Vector2.RIGHT)   # 闸 3 下方通道
-	_spawn_guide_arrow(Vector2(610.0, 170.0), Vector2.RIGHT)   # 窄缝正中 → 终点
+	_spawn_guide_arrow(Vector2(110.0, 280.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(170.0, 290.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(300.0, 200.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(430.0, 290.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(560.0, 220.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(690.0, 290.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(820.0, 200.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(940.0, 290.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(1040.0, 220.0), Vector2.RIGHT)
 
 	_spawn_corner_trees(w, h)
 	_sprinkle_decor(7)
 
-## 第 2/3 关共用融合图（1056x544）：垂直闸门蛇形 + 中央树丛绕动 + 三处窄缝。
-## 已用 BFS 全图可达性验证：唯一路线拓扑为
-##   钻 T1 下方窄缝（石头收窄，球心带宽 45px）→ 井内爬升 → 翻 B1 顶端
-##   → 顶部高跑 → 顶部短墙下压窄缝 → 越树丛顶 → 沿树丛右缘下潜
-##   → 底部石缝 → 贴右墙爬升（T2 强制）→ 终点。
-## 树丛脚下两棵灌木（655/745, 375）用于封死树丛与 B2 之间的针眼缝隙，勿删。
+## 第 2/3 关共用图（1056x544）：强制底廊 + 窄井 + 高跑扁管 + 短墙下压 + 树丛绕行 + 烟囱。
+## 硬约束（球 R=44；灌木 r=8.5，圆心=放置点+(0,-r)）：
+##   - 水平扁管放置间距 ≥ 120px（球心带 ≥ 15px）；管内禁止居中石；
+##   - 垂直井两墙间距 ≥ 145px（球心带 ≥ 40px）；井内禁止障碍；
+##   - 改完必须跑 tools/gauntlet_reachability_assert.gd。
 func _build_gauntlet_layout() -> void:
 	var w: float = float(_island_w * TILE_SIZE)
 	var h: float = float(_island_h * TILE_SIZE)
@@ -269,48 +289,148 @@ func _build_gauntlet_layout() -> void:
 	_spawn_fence_row(Vector2(32.0, h - 10.0), int((w - 64.0) / 16.0))
 
 	var rocks: Array[PropDef] = _rock_defs()
-
-	# T1：顶部垂直墙 x=230（伸到 y=322，球从下方钻过）
-	_spawn_bush_line(Vector2(230.0, 36.0), Vector2(0.0, 13.0), 23)
-	# T1 窄缝石：把下潜口收窄到球心带宽 45px
-	_world.add_child(_make_prop(rocks[0], Vector2(230.0, 470.0)))
-	# B1：底部垂直墙 x=420（伸到 y=238，球翻越顶端）
-	_spawn_bush_line(Vector2(420.0, h - 20.0), Vector2(0.0, -13.0), 23)
-	# 顶部短墙 x=610（伸到 y=114）：高跑段被压低，与树丛顶夹出窄缝
-	_spawn_bush_line(Vector2(610.0, 36.0), Vector2(0.0, 13.0), 7)
-	# B2：底部短墙 x=700（树丛正下方，与树丛联合封死下方通道）
-	_spawn_bush_line(Vector2(700.0, h - 20.0), Vector2(0.0, -13.0), 10)
-	# 针眼封口灌木（树丛两脚）
 	var bushes: Array[PropDef] = _bush_defs()
-	_world.add_child(_make_prop(bushes[0], Vector2(655.0, 375.0)))
-	_world.add_child(_make_prop(bushes[1], Vector2(745.0, 375.0)))
-
-	# 中央树丛：1 棵中心 + 半径 45px 六棵环（球心须离中心 ≥ 101px）
 	var trees: Array[PropDef] = _tree_defs()
-	var cx: float = 700.0
-	var cy: float = 272.0
+
+	# ---- 1) 封死左半场中路：只能走底廊 ----
+	_spawn_bush_line(Vector2(48.0, 300.0), Vector2(14.0, 0.0), 12)  # 中路横墙
+	_world.add_child(_make_prop(trees[0], Vector2(100.0, 180.0)))
+	_world.add_child(_make_prop(trees[1], Vector2(160.0, 220.0)))
+
+	# ---- 2) 开局底廊（间距 130px，球心带约 25px）----
+	_spawn_bush_line(Vector2(48.0, 360.0), Vector2(14.0, 0.0), 13)  # 廊顶
+	_spawn_bush_line(Vector2(48.0, 490.0), Vector2(14.0, 0.0), 13)  # 廊底
+	# 只贴边咬口，中线可过
+	_world.add_child(_make_prop(rocks[1], Vector2(130.0, 372.0)))
+	_world.add_child(_make_prop(rocks[1], Vector2(180.0, 478.0)))
+
+	# ---- 3) T1 闸：加长 + 贴底石，底缝球心带约 18px ----
+	_spawn_bush_line(Vector2(250.0, 36.0), Vector2(0.0, 13.0), 26)  # 尖端 y≈361
+	_world.add_child(_make_prop(rocks[0], Vector2(250.0, 478.0)))
+
+	# ---- 4) B1 闸：距 T1=145px → 球心井宽约 40px；井内空 ----
+	_spawn_bush_line(Vector2(395.0, h - 20.0), Vector2(0.0, -13.0), 23)  # 尖端 y≈238
+
+	# ---- 5) 翻 B1 后的高跑扁管（间距 125px）；地板短于天花，右侧留下潜口 ----
+	_spawn_bush_line(Vector2(420.0, 48.0), Vector2(14.0, 0.0), 11)   # 天花 → x≈560
+	_spawn_bush_line(Vector2(420.0, 173.0), Vector2(14.0, 0.0), 8)   # 地板 → x≈518，先结束
+	# 贴边石只放在扁管中前段，远离出口
+	_world.add_child(_make_prop(rocks[1], Vector2(460.0, 60.0)))
+	_world.add_child(_make_prop(rocks[1], Vector2(490.0, 161.0)))
+
+	# ---- 6) 短墙下压：出扁管后下潜钻过（尖端 y≈140 → 球心 y≥184）----
+	# 与扁管出口拉开间距，保证有下潜转弯空间
+	_spawn_bush_line(Vector2(630.0, 36.0), Vector2(0.0, 13.0), 9)
+
+	# ---- 7) 树丛 + B2：封死下方抄近路，逼从顶/右缘绕 ----
+	_spawn_bush_line(Vector2(720.0, h - 20.0), Vector2(0.0, -13.0), 12)
+	_world.add_child(_make_prop(bushes[0], Vector2(675.0, 360.0)))
+	_world.add_child(_make_prop(bushes[1], Vector2(765.0, 360.0)))
+	var cx: float = 720.0
+	var cy: float = 268.0
 	_world.add_child(_make_prop(trees[1], Vector2(cx, cy + 12.0)))
 	for i: int in 6:
 		var ang: float = TAU / 6.0 * float(i)
-		var pos: Vector2 = Vector2(cx + 45.0 * cos(ang), cy + 45.0 * sin(ang) + 12.0)
+		var pos: Vector2 = Vector2(cx + 52.0 * cos(ang), cy + 52.0 * sin(ang) + 12.0)
 		_world.add_child(_make_prop(trees[i % 2], pos))
+	# 挡扁管出口直冲树丛下方的抄近路（放在短墙右侧、下潜通道下方）
+	_world.add_child(_make_prop(rocks[0], Vector2(650.0, 280.0)))
 
-	# T2：顶部垂直墙 x=890（伸到 y=244，强制最后贴右墙爬升）
-	_spawn_bush_line(Vector2(890.0, 36.0), Vector2(0.0, 13.0), 17)
-	# 底部石缝：T2 柱下方通道收窄（球心带宽 83px）
-	_world.add_child(_make_prop(rocks[0], Vector2(890.0, 430.0)))
+	# ---- 8) 右下沉底闸 C1（从下往上，球从其顶翻过）：避免与 T2 双顶墙夹死 ----
+	_spawn_bush_line(Vector2(840.0, h - 20.0), Vector2(0.0, -13.0), 14)  # 尖端 y≈342
+	_world.add_child(_make_prop(rocks[1], Vector2(840.0, 310.0)))  # 顶端再压一点
 
-	# 地面箭头：严格跟蛇形动线的当前段方向，纵向段绝不用右箭头
-	_spawn_guide_arrow(Vector2(140.0, 400.0), Vector2.RIGHT)  # 开局右行去 T1 底
-	_spawn_guide_arrow(Vector2(230.0, 430.0), Vector2.RIGHT)  # 钻 T1 下方窄缝
-	_spawn_guide_arrow(Vector2(330.0, 320.0), Vector2.UP)     # 井内爬升翻 B1
-	_spawn_guide_arrow(Vector2(520.0, 100.0), Vector2.RIGHT)  # 顶部高跑
-	_spawn_guide_arrow(Vector2(700.0, 120.0), Vector2.RIGHT)  # 越树丛顶
-	_spawn_guide_arrow(Vector2(800.0, 260.0), Vector2.DOWN)   # 沿树丛右缘下潜
-	_spawn_guide_arrow(Vector2(940.0, 380.0), Vector2.UP)     # 贴右墙爬升进门
+	# ---- 9) T2 烟囱：贴右爬升（T2≤950）----
+	_spawn_bush_line(Vector2(930.0, 36.0), Vector2(0.0, 13.0), 18)  # 尖端 y≈257
+	_world.add_child(_make_prop(rocks[0], Vector2(930.0, 448.0)))
+
+	_spawn_guide_arrow(Vector2(120.0, 425.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(250.0, 412.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(320.0, 300.0), Vector2.UP)
+	_spawn_guide_arrow(Vector2(500.0, 110.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(580.0, 200.0), Vector2.DOWN)
+	_spawn_guide_arrow(Vector2(720.0, 130.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(800.0, 280.0), Vector2.DOWN)
+	_spawn_guide_arrow(Vector2(840.0, 250.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(980.0, 360.0), Vector2.UP)
 
 	_spawn_corner_trees(w, h)
-	_sprinkle_decor(9)
+	_sprinkle_decor(8)
+
+## 第 4 关：三层宽阔折返场。
+## 两堵横墙分别在右侧、左侧留出大开口，形成「右行—左行—右行」的大回头体验。
+## 每层球心可活动高度约 96px；两处回转区的球心宽度均超过 150px。
+func _build_level4_layout() -> void:
+	var w: float = float(_island_w * TILE_SIZE)
+	var h: float = float(_island_h * TILE_SIZE)
+	_spawn_fence_row(Vector2(32.0, 20.0), int((w - 64.0) / 16.0))
+	_spawn_fence_row(Vector2(32.0, h - 10.0), int((w - 64.0) / 16.0))
+
+	# 下层隔墙：左端封住，右侧保留约 160px 的宽回转区。
+	_spawn_bush_line(Vector2(40.0, 440.0), Vector2(14.0, 0.0), 63)
+	# 上层隔墙：右端封住，左侧保留约 155px 的宽回转区。
+	_spawn_bush_line(Vector2(260.0, 240.0), Vector2(14.0, 0.0), 58)
+
+	# 下层：一路向右，到墙尾做第一次 180° 回头。
+	_spawn_guide_arrow(Vector2(150.0, 540.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(480.0, 540.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(850.0, 540.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(1000.0, 390.0), Vector2.UP)
+	# 中层：向左横穿，在左端做第二次 180° 回头。
+	_spawn_guide_arrow(Vector2(850.0, 340.0), Vector2.LEFT)
+	_spawn_guide_arrow(Vector2(520.0, 340.0), Vector2.LEFT)
+	_spawn_guide_arrow(Vector2(190.0, 340.0), Vector2.LEFT)
+	_spawn_guide_arrow(Vector2(140.0, 190.0), Vector2.UP)
+	# 上层：向右冲向终点。
+	_spawn_guide_arrow(Vector2(330.0, 130.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(680.0, 130.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(980.0, 130.0), Vector2.RIGHT)
+
+	_spawn_corner_trees(w, h)
+	_sprinkle_decor(8)
+
+## 第 5 关：矩形螺旋。
+## 六段灌木墙首尾交错连接，玩家从外圈顺时针绕入中心；不存在第 2/3 关的窄井/高架。
+## 最窄的强制通道按球心仍留约 65px，回转区更宽。
+func _build_level5_layout() -> void:
+	var w: float = float(_island_w * TILE_SIZE)
+	var h: float = float(_island_h * TILE_SIZE)
+	_spawn_fence_row(Vector2(32.0, 20.0), int((w - 64.0) / 16.0))
+	_spawn_fence_row(Vector2(32.0, h - 10.0), int((w - 64.0) / 16.0))
+
+	var trees: Array[PropDef] = _tree_defs()
+
+	# 外圈下墙 + 右墙：迫使开局先向右，再沿地图右缘向上。
+	_spawn_bush_line(Vector2(40.0, 530.0), Vector2(14.0, 0.0), 51)   # 末端 x=740
+	_spawn_bush_line(Vector2(740.0, 530.0), Vector2(0.0, -13.0), 29) # 末端 y≈166
+	# 外圈上墙 + 左墙：到顶后向左，再沿左侧向下进入内圈。
+	_spawn_bush_line(Vector2(180.0, 160.0), Vector2(14.0, 0.0), 41)  # 末端 x=740
+	_spawn_bush_line(Vector2(180.0, 160.0), Vector2(0.0, 13.0), 10)  # 末端 y≈277
+	# 内圈下墙 + 右墙：从左侧转向右，再从右侧向上切入中心。
+	_spawn_bush_line(Vector2(180.0, 440.0), Vector2(14.0, 0.0), 27)  # 末端 x≈544
+	_spawn_bush_line(Vector2(548.0, 440.0), Vector2(0.0, -13.0), 10) # 末端 y≈323
+
+	# 中央树作为视觉锚点；位置在终点左上，不侵占最后一段进场路线。
+	_world.add_child(_make_prop(trees[1], Vector2(350.0, 300.0)))
+	_world.add_child(_make_prop(trees[2], Vector2(390.0, 285.0)))
+
+	# 外圈顺时针。
+	_spawn_guide_arrow(Vector2(140.0, 610.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(420.0, 610.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(820.0, 610.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(850.0, 420.0), Vector2.UP)
+	_spawn_guide_arrow(Vector2(850.0, 220.0), Vector2.UP)
+	_spawn_guide_arrow(Vector2(520.0, 90.0), Vector2.LEFT)
+	_spawn_guide_arrow(Vector2(250.0, 90.0), Vector2.LEFT)
+	_spawn_guide_arrow(Vector2(105.0, 250.0), Vector2.DOWN)
+	# 内圈逆向折入中心。
+	_spawn_guide_arrow(Vector2(105.0, 390.0), Vector2.DOWN)
+	_spawn_guide_arrow(Vector2(300.0, 350.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(430.0, 350.0), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(480.0, 300.0), Vector2.UP)
+
+	_spawn_corner_trees(w, h)
+	_sprinkle_decor(8)
 
 ## 一串灌木（有碰撞的软墙），从 start 沿 step 连摆 count 棵
 func _spawn_bush_line(start: Vector2, step: Vector2, count: int) -> void:

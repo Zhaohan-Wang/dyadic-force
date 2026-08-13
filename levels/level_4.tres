@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="LevelDef" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://resources/level_def.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+level_name = "LEVEL 4 - SWITCHBACK FIELD"
+level_id = "level_4"
+island_size = Vector2i(72, 38)
+layout_seed = 20260824
+obstacle_density = 1.0
+layout_style = "author"
+spawn_point = Vector2(100, 540)
+goal_point = Vector2(1000, 130)
+route_centerline = PackedVector2Array(100, 540, 500, 540, 900, 540, 1000, 500, 1000, 340, 850, 340, 500, 340, 180, 340, 120, 290, 120, 130, 500, 130, 1000, 130)
+route_corridor_half_width = 46.0
+route_completion_direction = Vector2(1, 0)
+time_limit = 90.0
+ball_max_hp = 3.0
+death_time_penalty = 8.0
+tutorial_steps = PackedStringArray()
+intro_lines = PackedStringArray("THREE WIDE LANES. TWO FULL TURNS.", "USE THE OPEN ENDS TO SWITCH DIRECTION.", "BUILD SPEED ON THE STRAIGHTS; BRAKE BEFORE EACH TURN.")
+is_practice = false

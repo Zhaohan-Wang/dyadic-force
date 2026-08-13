@@ -20,6 +20,12 @@ extends Resource
 @export var spawn_point: Vector2 = Vector2(240.0, 144.0)
 ## 终点位置（世界像素坐标）
 @export var goal_point: Vector2 = Vector2(400.0, 144.0)
+## 分析与地图共用的手工中心线（按出生点到终点顺序）。
+@export var route_centerline: PackedVector2Array = PackedVector2Array()
+## 合法走廊半宽（像素）；球心到中心线距离不超过此值即在界内。
+@export var route_corridor_half_width: float = 96.0
+## 完成方向（世界坐标单位向量），用于复核终点附近运动方向。
+@export var route_completion_direction: Vector2 = Vector2.RIGHT
 ## 限时（秒）；0 = 不限时（练习关）
 @export var time_limit: float = 0.0
 ## 球的最大生命值（整心格数；HUD 固定显示 3 格，默认 3）
@@ -32,7 +38,7 @@ extends Resource
 ## 弹出期间输入冻结、计时不开始，玩家按任意键确认后关卡才正式开始
 @export var intro_lines: PackedStringArray = PackedStringArray()
 ## “输入缩减”时段（x = 开始秒，y = 结束秒，按已用时间计；ZERO = 无此机制）
-## 时段内随机把 A 或 B 的输入缩减到约 65%，每段持续约 3 秒并交替换人
+## 时段内随机把 A 或 B 的输入缩减到约 50%，每段持续约 4 秒并交替换人
 @export var dampen_window: Vector2 = Vector2.ZERO
 ## 是否为练习关（影响 HUD：隐藏倒计时、显示已用时）
 @export var is_practice: bool = false

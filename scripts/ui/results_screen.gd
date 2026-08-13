@@ -143,8 +143,8 @@ class TrailMap:
 const PANEL_WIDTH: float = 780.0
 const PANEL_PAD_X: float = 44.0
 const PANEL_PAD_Y: float = 28.0
-## 除路线图外的固定占位：标题/星星/6 行统计/按钮/间距/内边距
-const PANEL_CHROME_HEIGHT: float = 560.0
+## 除路线图外的固定占位：标题/星星/统计/数据状态/按钮/间距/内边距
+const PANEL_CHROME_HEIGHT: float = 640.0
 
 func _ready() -> void:
 	_build()
@@ -257,6 +257,10 @@ func _build() -> void:
 		GameState.ui("精细控制", "FINE CTRL"), "%d%%" % int(round(fine_ratio * 100.0))
 	))
 
+	# ---- 实验数据落盘状态与可操作入口（仅实验模式）----
+	if GameState.experiment_mode:
+		box.add_child(_make_data_status(result))
+
 	# ---- 按钮行 ----
 	var actions: HBoxContainer = HBoxContainer.new()
 	actions.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -337,6 +341,43 @@ func _make_stat_row(label_text: String, value_text: String) -> Control:
 	value_label.label_settings = settings
 	row.add_child(value_label)
 	return row
+
+func _make_data_status(result: Dictionary) -> Control:
+	var row: HBoxContainer = HBoxContainer.new()
+	row.add_theme_constant_override("separation", 16)
+	row.custom_minimum_size = Vector2(0, 60)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+
+	var directory: String = str(result.get("data_directory", ""))
+	var export_ok: bool = bool(result.get("data_export_ok", false))
+	var status_text: String = (
+		GameState.ui("保存成功", "SAVED")
+		if export_ok
+		else GameState.ui("保存失败", "SAVE FAILED")
+	)
+	var label: Label = MenuKit.make_panel_label(status_text, 22, 0.72 if export_ok else 1.0)
+	if not export_ok:
+		label.modulate = MenuKit.COL_DANGER
+	row.add_child(label)
+
+	var open_button: Button = MenuKit.make_big_button(
+		GameState.ui("打开文件夹", "OPEN FOLDER"), 18, Vector2(200, 56)
+	)
+	open_button.disabled = (
+		not export_ok
+		or directory.is_empty()
+		or not DirAccess.dir_exists_absolute(directory)
+	)
+	open_button.pressed.connect(func() -> void: _open_data_directory(directory))
+	row.add_child(open_button)
+	return row
+
+func _open_data_directory(directory: String) -> void:
+	if directory.is_empty() or not DirAccess.dir_exists_absolute(directory):
+		return
+	var error: Error = OS.shell_open(ProjectSettings.globalize_path(directory))
+	if error != OK:
+		push_warning("ResultsScreen: failed to open data directory (%s)" % error)
 
 ## 结算页按取消键直接返回选关，保证不经过键盘也能完成返回操作。
 func _input(event: InputEvent) -> void:

@@ -6,7 +6,7 @@ extends Control
 ## - 手柄按 A 认领第一个空槽位
 ## - 退出：P1 键盘按 X、P2 键盘按 DEL、手柄按 B
 ## - 双方都加入后 START 才可用（Enter / 手柄 A / 点击）
-## - ESC 返回标题；未加入的手柄按 B 返回标题；手柄拔出时对应槽位自动腾空
+## - ESC 返回实验录入；未加入的手柄按 B 返回实验录入；手柄拔出时对应槽位自动腾空
 
 ## 每张槽位卡的节点引用集合
 class SlotCard:
@@ -120,11 +120,29 @@ func _make_slot_card(slot: int) -> Control:
 	box.add_theme_constant_override("separation", 10)
 	panel.add_child(box)
 
-	# 玩家编号
+	# 去标识化参与者、设备槽位与画面侧别必须同时可核对。
+	var participant_letter: String = GameState.participant_letter_for_slot(slot)
+	var participant_id: String = GameState.participant_id_for_slot(slot)
+	var identity_text: String = GameState.ui(
+		"参与者 %s · %s · P%d · %s" % [
+			participant_letter,
+			participant_id if not participant_id.is_empty() else "—",
+			slot + 1,
+			GameState.screen_side_for_slot(slot),
+		],
+		"PARTICIPANT %s · %s · P%d · %s" % [
+			participant_letter,
+			participant_id if not participant_id.is_empty() else "—",
+			slot + 1,
+			GameState.screen_side_for_slot(slot),
+		],
+	)
 	var header: Label = MenuKit.make_label(
-		"P%d" % (slot + 1), 42,
+		identity_text, 26,
 		MenuKit.COL_INK if slot == 0 else MenuKit.COL_ACCENT, 0)
 	header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	header.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	header.custom_minimum_size = Vector2(0, 68)
 	box.add_child(header)
 
 	# 猴子形象
@@ -287,7 +305,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 				InputHub.leave_slot(1)
 		KEY_ESCAPE:
 			InputHub.clear_slots()
-			SceneDirector.go_to("res://scenes/title_screen.tscn")
+			SceneDirector.go_to(GameState.pairing_back_scene())
 
 ## 直接接收 InputHub 翻译后的手柄动作，避免轮询与 UI 控件争抢同一次按键。
 func _input(event: InputEvent) -> void:
@@ -321,14 +339,14 @@ func _on_pad_accept(joy_id: int) -> void:
 	if InputHub.both_ready() and Time.get_ticks_msec() - _slots_changed_ms > 500:
 		_on_start()
 
-## 手柄 B：已加入时先退出自己的槽位；未加入时返回标题。
+## 手柄 B：已加入时先退出自己的槽位；未加入时返回实验录入。
 func _on_pad_cancel(joy_id: int) -> void:
 	var slot: int = InputHub.find_joypad_slot(joy_id)
 	if slot >= 0:
 		InputHub.leave_slot(slot)
 		return
 	InputHub.clear_slots()
-	SceneDirector.go_to("res://scenes/title_screen.tscn")
+	SceneDirector.go_to(GameState.pairing_back_scene())
 
 func _on_hotplug(device_id: int, connected: bool) -> void:
 	if connected:

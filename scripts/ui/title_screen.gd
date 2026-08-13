@@ -61,27 +61,49 @@ func _build() -> void:
 	add_child(sub)
 	UiSpring.attach(sub, 0.55, 0.25).pop_in(0.15)
 
-	# ---- 菜单按钮：左下角（背景棋盘垫区域），避开中部猴子推球主体 ----
+	# ---- 菜单：左下角棋盘区；模式开关在上，主按钮在下 ----
 	var col: VBoxContainer = VBoxContainer.new()
-	col.position = Vector2(120, 590)
-	col.custom_minimum_size = Vector2(440, 400)
-	col.add_theme_constant_override("separation", 28)
+	col.position = Vector2(120, 470)
+	col.custom_minimum_size = Vector2(440, 560)
+	col.add_theme_constant_override("separation", 16)
 	add_child(col)
 
+	# 模式滑动开关：默认关闭，勾选后写入 settings.cfg。
+	col.add_child(_make_slide_switch_row(
+		GameState.ui("实验模式", "EXPERIMENT MODE"),
+		GameState.experiment_mode,
+		func(on: bool) -> void:
+			GameState.experiment_mode = on
+			GameState.save_settings()
+	))
+	col.add_child(_make_slide_switch_row(
+		GameState.ui("调试模式", "DEBUG MODE"),
+		GameState.debug_mode,
+		func(on: bool) -> void:
+			GameState.debug_mode = on
+			GameState.save_settings()
+	))
+
 	var start_btn: Button = MenuKit.make_big_button(
-		GameState.ui("开始游戏", "START GAME"), 32, Vector2(440, 108)
+		GameState.ui("开始游戏", "START GAME"), 32, Vector2(440, 100)
 	)
 	start_btn.pressed.connect(_on_start)
 	col.add_child(start_btn)
 
 	var settings_btn: Button = MenuKit.make_big_button(
-		GameState.ui("设置", "SETTINGS"), 32, Vector2(440, 108)
+		GameState.ui("设置", "SETTINGS"), 32, Vector2(440, 100)
 	)
 	settings_btn.pressed.connect(_open_settings)
 	col.add_child(settings_btn)
 
+	var data_btn: Button = MenuKit.make_big_button(
+		GameState.ui("打开数据文件夹", "OPEN DATA FOLDER"), 26, Vector2(440, 84)
+	)
+	data_btn.pressed.connect(_open_experiment_logs)
+	col.add_child(data_btn)
+
 	var quit_btn: Button = MenuKit.make_big_button(
-		GameState.ui("退出游戏", "QUIT"), 32, Vector2(440, 108)
+		GameState.ui("退出游戏", "QUIT"), 32, Vector2(440, 100)
 	)
 	quit_btn.pressed.connect(func() -> void: get_tree().quit())
 	col.add_child(quit_btn)
@@ -89,8 +111,7 @@ func _build() -> void:
 	# 逐个弹入 + 初始焦点
 	var delay: float = 0.25
 	for child: Node in col.get_children():
-		var btn: Button = child as Button
-		UiSpring.attach(btn, 0.5, 0.3).pop_in(delay)
+		UiSpring.attach(child as Control, 0.5, 0.3).pop_in(delay)
 		delay += 0.08
 	start_btn.grab_focus.call_deferred()
 
@@ -269,6 +290,93 @@ func _rebuild_for_language() -> void:
 		child.free()
 	_build()
 
+## 标题页模式开关：像素描边大字 + 与圆同高的胶囊槽。
+func _make_slide_switch_row(text: String, initial: bool, on_changed: Callable) -> Control:
+	# 圆直径决定槽高；角半径 = 半高，两端才是真正的半圆胶囊。
+	const KNOB: float = 36.0
+	const TRACK_H: float = KNOB
+	const TRACK_W: float = 84.0
+	const KNOB_ON_X: float = TRACK_W - KNOB
+	const KNOB_OFF_X: float = 0.0
+	const CAPSULE_RADIUS: int = int(TRACK_H * 0.5)
+
+	var row: HBoxContainer = HBoxContainer.new()
+	row.custom_minimum_size = Vector2(0, 64)
+	row.add_theme_constant_override("separation", 20)
+	# 不用 Label 自带 outline（中文像素字会发脏），改用方形核扩张描边。
+	var label: Control = MenuKit.make_pixel_outline_text(text, 32, MenuKit.COL_CREAM, 2)
+	label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(label)
+	var spacer: Control = Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(spacer)
+
+	var switch_btn: Button = Button.new()
+	switch_btn.toggle_mode = true
+	switch_btn.button_pressed = initial
+	switch_btn.custom_minimum_size = Vector2(TRACK_W, TRACK_H)
+	switch_btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	switch_btn.focus_mode = Control.FOCUS_ALL
+	switch_btn.flat = true
+	switch_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	for state: String in ["normal", "hover", "pressed", "focus", "disabled"]:
+		var empty := StyleBoxEmpty.new()
+		switch_btn.add_theme_stylebox_override(state, empty)
+
+	var track: Panel = Panel.new()
+	track.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	track.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var track_off := StyleBoxFlat.new()
+	track_off.bg_color = Color("3a2a1c")
+	track_off.corner_radius_top_left = CAPSULE_RADIUS
+	track_off.corner_radius_top_right = CAPSULE_RADIUS
+	track_off.corner_radius_bottom_left = CAPSULE_RADIUS
+	track_off.corner_radius_bottom_right = CAPSULE_RADIUS
+	track_off.border_width_left = 2
+	track_off.border_width_top = 2
+	track_off.border_width_right = 2
+	track_off.border_width_bottom = 2
+	track_off.border_color = Color("2a1c12")
+	var track_on := track_off.duplicate() as StyleBoxFlat
+	track_on.bg_color = MenuKit.COL_READY
+	track_on.border_color = Color("3f6e28")
+	track.add_theme_stylebox_override("panel", track_on if initial else track_off)
+	switch_btn.add_child(track)
+
+	var knob: Panel = Panel.new()
+	knob.custom_minimum_size = Vector2(KNOB, KNOB)
+	knob.size = Vector2(KNOB, KNOB)
+	knob.position = Vector2(KNOB_ON_X if initial else KNOB_OFF_X, 0.0)
+	knob.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var knob_style := StyleBoxFlat.new()
+	knob_style.bg_color = MenuKit.COL_CREAM
+	knob_style.corner_radius_top_left = CAPSULE_RADIUS
+	knob_style.corner_radius_top_right = CAPSULE_RADIUS
+	knob_style.corner_radius_bottom_left = CAPSULE_RADIUS
+	knob_style.corner_radius_bottom_right = CAPSULE_RADIUS
+	knob_style.border_width_left = 2
+	knob_style.border_width_top = 2
+	knob_style.border_width_right = 2
+	knob_style.border_width_bottom = 2
+	knob_style.border_color = MenuKit.COL_OUTLINE
+	knob.add_theme_stylebox_override("panel", knob_style)
+	switch_btn.add_child(knob)
+
+	var spring: UiSpring = UiSpring.attach(switch_btn, 0.4, 0.35)
+	switch_btn.focus_entered.connect(func() -> void: spring.set_scale_target(1.08))
+	switch_btn.focus_exited.connect(func() -> void: spring.set_scale_target(1.0))
+	switch_btn.mouse_entered.connect(func() -> void: switch_btn.grab_focus())
+	switch_btn.toggled.connect(func(on: bool) -> void:
+		track.add_theme_stylebox_override("panel", track_on if on else track_off)
+		var tween: Tween = switch_btn.create_tween()
+		tween.tween_property(knob, "position:x", KNOB_ON_X if on else KNOB_OFF_X, 0.12) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		spring.punch(0.22)
+		on_changed.call(on)
+	)
+	row.add_child(switch_btn)
+	return row
+
 ## 一行设置项：左侧文字，右侧 Sprout 勾选块
 func _make_toggle_row(text: String, initial: bool, on_changed: Callable) -> Control:
 	var row: HBoxContainer = HBoxContainer.new()
@@ -331,7 +439,20 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 func _on_start() -> void:
-	SceneDirector.go_to("res://scenes/pairing_screen.tscn")
+	if not GameState.experiment_mode:
+		# 非实验模式跳过编号/组别录入，也不应带着上次锁定的实验元数据。
+		GameState.experiment_setup_locked = false
+	SceneDirector.go_to(GameState.start_flow_scene())
+
+## 一键打开实验数据根目录；目录不存在时先创建再打开。
+func _open_experiment_logs() -> void:
+	var log_dir: String = ExperimentLog.ensure_root()
+	if log_dir.is_empty() or not DirAccess.dir_exists_absolute(log_dir):
+		push_warning("TitleScreen: cannot create experiments directory")
+		return
+	var error: Error = OS.shell_open(ProjectSettings.globalize_path(log_dir))
+	if error != OK:
+		push_warning("TitleScreen: failed to open experiments directory (%s)" % error)
 
 func _on_joy_hotplug(_device_id: int, _connected: bool) -> void:
 	if _hint_holder != null and is_instance_valid(_hint_holder):

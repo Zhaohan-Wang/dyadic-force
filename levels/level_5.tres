@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="LevelDef" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://resources/level_def.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+level_name = "LEVEL 5 - SPIRAL GROVE"
+level_id = "level_5"
+island_size = Vector2i(60, 44)
+layout_seed = 20260825
+obstacle_density = 1.0
+layout_style = "author"
+spawn_point = Vector2(100, 610)
+goal_point = Vector2(480, 300)
+route_centerline = PackedVector2Array(100, 610, 420, 610, 820, 610, 850, 520, 850, 220, 820, 90, 500, 90, 160, 90, 100, 180, 100, 360, 250, 350, 430, 350, 480, 300)
+route_corridor_half_width = 44.0
+route_completion_direction = Vector2(-1, 0)
+time_limit = 90.0
+ball_max_hp = 3.0
+death_time_penalty = 9.0
+tutorial_steps = PackedStringArray()
+intro_lines = PackedStringArray("FOLLOW THE SPIRAL FROM THE OUTSIDE IN.", "EVERY CORNER TIGHTENS THE TURN.", "ONLY IN PERTURBATION CONDITION:", "FROM 10S TO 65S ONE INPUT DROPS TO 50%.")
+dampen_window = Vector2(10, 65)
+is_practice = false

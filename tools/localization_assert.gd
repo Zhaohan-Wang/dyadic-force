@@ -4,6 +4,7 @@ extends Node
 
 const PAGES: Array[String] = [
 	"res://scenes/title_screen.tscn",
+	"res://scenes/experiment_setup_screen.tscn",
 	"res://scenes/pairing_screen.tscn",
 	"res://scenes/calibration_screen.tscn",
 	"res://scenes/level_select.tscn",
@@ -12,6 +13,7 @@ const PAGES: Array[String] = [
 
 const ZH_REQUIRED: Dictionary[String, String] = {
 	"res://scenes/title_screen.tscn": "开始游戏",
+	"res://scenes/experiment_setup_screen.tscn": "实验信息录入",
 	"res://scenes/pairing_screen.tscn": "玩家配对",
 	"res://scenes/calibration_screen.tscn": "输入检测",
 	"res://scenes/level_select.tscn": "选择关卡",
@@ -20,6 +22,7 @@ const ZH_REQUIRED: Dictionary[String, String] = {
 
 const EN_REQUIRED: Dictionary[String, String] = {
 	"res://scenes/title_screen.tscn": "START GAME",
+	"res://scenes/experiment_setup_screen.tscn": "EXPERIMENT SETUP",
 	"res://scenes/pairing_screen.tscn": "PAIR UP",
 	"res://scenes/calibration_screen.tscn": "INPUT CHECK",
 	"res://scenes/level_select.tscn": "SELECT LEVEL",
@@ -31,6 +34,7 @@ const ZH_BANNED: PackedStringArray = [
 	"WAITING FOR PLAYERS", "INPUT CHECK", "HANDS OFF", "CENTER CHECK",
 	"RANGE CHECK", "SELECT LEVEL", "NO TIMER", "LEVEL CLEAR", "TIME'S UP",
 	"RETRY", "NEXT", "BACK", "CALIBRATION COMPLETE", "NO CALIBRATION NEEDED",
+	"EXPERIMENT SETUP", "DYAD ID", "PARTICIPANT A ID", "LOCK & CONTINUE",
 ]
 
 func _ready() -> void:
@@ -72,18 +76,27 @@ func _run() -> void:
 						visible_text.contains("CONTROLLER VIBRATION"),
 						"haptic setting is not English",
 					)
-			page.process_mode = Node.PROCESS_MODE_DISABLED
-			if page is CanvasItem:
-				(page as CanvasItem).visible = false
+			page.queue_free()
+			await get_tree().process_frame
 
 	_assert_level_resources(game_state)
 	_assert_level_content(game_state, input_hub)
 	_assert_pixel_outline()
 	print("localization_assert OK")
+	game_state.set("current_level", null)
+	game_state.set("last_result", {})
+	input_hub.call("clear_slots")
+	await get_tree().process_frame
 	await get_tree().process_frame
 	get_tree().quit(0)
 
 func _prepare_result(game_state: Node) -> void:
+	game_state.set("dyad_id", "D001")
+	game_state.set("participant_A", "A001")
+	game_state.set("participant_B", "B001")
+	game_state.set("relation_condition", "friends")
+	game_state.set("participant_a_slot", 0)
+	game_state.set("experiment_setup_locked", true)
 	game_state.set("current_level", load("res://levels/level_1.tres"))
 	game_state.set("last_result", {
 		"success": true,
@@ -143,7 +156,8 @@ func _assert_level_content(game_state: Node, input_hub: Node) -> void:
 	assert(visible_text.contains("准备开始！"), "level intro title is not Chinese")
 	assert(visible_text.contains("正式关卡有时间限制！"), "level intro line is not Chinese")
 	assert(not visible_text.contains("GET READY!"), "level intro leaks English title")
-	level.process_mode = Node.PROCESS_MODE_DISABLED
+	level.queue_free()
+	await get_tree().process_frame
 
 func _assert_level_resources(game_state: Node) -> void:
 	game_state.set("language", "zh")
@@ -152,6 +166,8 @@ func _assert_level_resources(game_state: Node) -> void:
 		"res://levels/level_1.tres",
 		"res://levels/level_2.tres",
 		"res://levels/level_3.tres",
+		"res://levels/level_4.tres",
+		"res://levels/level_5.tres",
 	]
 	for path: String in paths:
 		var definition: LevelDef = load(path) as LevelDef
@@ -179,3 +195,4 @@ func _assert_pixel_outline() -> void:
 	for child: Node in world_text.get_children():
 		var layer: Label = child as Label
 		assert(layer != null and layer.label_settings.outline_size == 0, "Godot outline leaked")
+	world_text.free()

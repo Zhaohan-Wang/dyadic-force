@@ -5,6 +5,8 @@ extends Area2D
 ## 传送演出（光柱 / 火花 / 全白）由 Level 通过 power_up()/spawn_beam() 驱动。
 
 signal reached
+signal ball_entered
+signal ball_left
 
 ## 球压住门心后需要保持的充能时间（秒）
 @export var hold_time: float = 0.6
@@ -28,6 +30,7 @@ var _proximity: float = 0.0
 ## 累加旋转相位 / 呼吸相位（与相机完全解耦）
 var _spin: float = 0.0
 var _pulse: float = 0.0
+var _inside_lock: bool = false
 
 func _ready() -> void:
 	monitoring = false
@@ -86,9 +89,16 @@ func _physics_process(delta: float) -> void:
 		return
 	var dist: float = _ball.global_position.distance_to(global_position)
 	_proximity = clampf(1.0 - dist / near_radius, 0.0, 1.0)
+	var inside_now: bool = dist <= lock_radius
+	if inside_now != _inside_lock:
+		_inside_lock = inside_now
+		if _inside_lock:
+			ball_entered.emit()
+		else:
+			ball_left.emit()
 
 	# 完全压上 → 充能；离开 → 快速泄能
-	if _armed and dist <= lock_radius:
+	if _armed and inside_now:
 		_hold = minf(hold_time, _hold + delta)
 	else:
 		_hold = maxf(0.0, _hold - delta * 2.5)
