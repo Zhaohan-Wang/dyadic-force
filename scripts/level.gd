@@ -27,6 +27,12 @@ var _trail_timer: float = 0.0
 var _failed_trails: Array[PackedVector2Array] = []
 ## 每次扣血时球的位置（结算图上标红点）
 var _hit_points: PackedVector2Array = PackedVector2Array()
+## 真实扰动生效期间走过的路径（结算图上高亮成"偏移区间"）
+var _perturb_spans: Array[PackedVector2Array] = []
+## 当前是否处于真实扰动中（假扰动不计）
+var _perturb_active: bool = false
+## 本局真实扰动累计时长（秒）
+var _perturb_seconds: float = 0.0
 
 ## ---- 开场须知弹窗 ----
 ## 弹窗所在层（非 null = 弹窗展示中，输入冻结、任意键关闭）
@@ -35,20 +41,14 @@ var _intro_layer: CanvasLayer = null
 var _pause_menu: PauseMenu = null
 var _trial_closed: bool = false
 
-## ---- “输入缩减”机制（第 3 关） ----
-## 缩减到原输入的一半，降幅必须一眼可感（±0.03 微浮动）
-const DAMPEN_FACTOR: float = 0.50
-## 单次缩减持续时长范围（秒）；稍长以便看清钟表状态切换
-const DAMPEN_BURST_MIN_S: float = 3.2
-const DAMPEN_BURST_MAX_S: float = 4.6
-## 当前被缩减的槽位（-1 = 尚未开始 / 时段外）
-var _dampen_slot: int = -1
-## 当前缩减段剩余时长（秒）
-var _dampen_left: float = 0.0
-## 当前实际增益（供 HUD）
-var _dampen_factor: float = 1.0
-## 缩减段随机源（挑人 / 时长 / 幅度）
-var _dampen_rng: RandomNumberGenerator = RandomNumberGenerator.new()
+## ---- 五关扩展组件 ----
+var _gates: Array[BreakableGate] = []
+var _segment_zones: Array[RouteSegmentZone] = []
+var _perturb: PerturbationController = PerturbationController.new()
+var _choice_tracker: ChoiceForkTracker = ChoiceForkTracker.new()
+var _active_segment_id: String = ""
+var _active_segment_type: String = ""
+var _active_gate_id: String = ""
 
 func _ready() -> void:
 	_def = GameState.current_level
@@ -82,6 +82,7 @@ func _ready() -> void:
 	_spawn_spawn_marker()
 	_spawn_goal()
 	_setup_health()
+	_setup_challenge_components()
 	_setup_hud()
 	_setup_physics_debug()
 	_setup_pause_menu()
@@ -118,6 +119,7 @@ func _ready() -> void:
 ## 离开关卡时清掉输入增益；session 文件由全局日志器跨 trial 保持打开。
 func _exit_tree() -> void:
 	get_tree().paused = false
+	Engine.time_scale = 1.0
 	HapticHub.end_level()
 	InputHub.reset_gains()
 	if not _trial_closed:
@@ -142,11 +144,19 @@ func _physics_process(delta: float) -> void:
 	if _state.phase == LevelState.Phase.RUNNING:
 		if _state.tick_time(delta):
 			_on_failed()
-		_update_input_dampen(delta)
+		_perturb.update(delta, true)
+		_choice_tracker.update(delta)
 		_update_tutorial_progress()
 		_sample_trail(delta)
 	# READY / RUNNING 都记采样，保证开局输入可复算
 	if _state.phase == LevelState.Phase.READY or _state.phase == LevelState.Phase.RUNNING:
+		ExperimentLog.set_task_context(
+			_active_segment_id,
+			_active_segment_type,
+			_active_gate_id,
+			_choice_tracker.get_active_choice_id(),
+			_choice_tracker.get_current_branch(),
+		)
 		ExperimentLog.log_frame(
 			delta,
 			_phase_name(_state.phase),
@@ -246,69 +256,112 @@ func _dismiss_intro_popup() -> void:
 	InputHub.input_frozen = false
 	ExperimentLog.log_event("intro_dismissed")
 
-# ---------- “输入缩减”机制（第 3 关） ----------
+# ---------- 五关扩展：门 / 路段 / 扰动 / 岔路 ----------
 
-## 在缩减时段内：约每 4 秒一段，一人输入砍到约 50%，A/B 交替换人。
-## 仅 experiment_condition == "perturbation" 时启用，避免基线试次被混淆。
-func _update_input_dampen(delta: float) -> void:
-	if _def.dampen_window == Vector2.ZERO:
-		return
-	if GameState.experiment_condition != "perturbation":
-		if _dampen_slot != -1:
-			_clear_dampen_state()
-		return
-	var t: float = _state.elapsed
-	var inside: bool = t >= _def.dampen_window.x and t < _def.dampen_window.y
-	if not inside:
-		if _dampen_slot != -1:
-			_clear_dampen_state()
-		return
-	_dampen_left -= delta
-	if _dampen_slot == -1 or _dampen_left <= 0.0:
-		# 新一段：首段随机挑人，其后 A/B 交替；另一人恢复满增益（相对增幅）
-		if _dampen_slot >= 0:
-			ExperimentLog.log_event("perturb_off", {
-				"slot": _dampen_slot,
-				"gain": _dampen_factor,
-				"note": "burst_switch",
-			})
-		_dampen_slot = _dampen_rng.randi_range(0, 1) if _dampen_slot == -1 else 1 - _dampen_slot
-		_dampen_left = _dampen_rng.randf_range(DAMPEN_BURST_MIN_S, DAMPEN_BURST_MAX_S)
-		_dampen_factor = clampf(
-			DAMPEN_FACTOR + _dampen_rng.randf_range(-0.03, 0.03), 0.0, 1.0
-		)
-		InputHub.slot_gains[0] = _dampen_factor if _dampen_slot == 0 else 1.0
-		InputHub.slot_gains[1] = _dampen_factor if _dampen_slot == 1 else 1.0
-		ExperimentLog.log_condition_event(
-			_state.elapsed,
-			_dampen_slot,
-			_dampen_factor,
-			"dampen_burst_start"
-		)
-		if _hud != null:
-			_hud.set_dampen_active(_dampen_slot, _dampen_factor)
+## 按 LevelDef 装配门、不可见路段、扰动控制器与岔路追踪。
+func _setup_challenge_components() -> void:
+	_gates.clear()
+	_segment_zones.clear()
+	_active_segment_id = ""
+	_active_segment_type = ""
+	_active_gate_id = ""
+	for gate_def: GateDef in _def.gates:
+		var gate: BreakableGate = BreakableGate.new()
+		_world.add_child(gate)
+		gate.setup(gate_def, _ball)
+		gate.gate_attempt.connect(_on_gate_attempt)
+		gate.gate_failed.connect(_on_gate_failed)
+		gate.gate_opened.connect(_on_gate_opened)
+		_gates.append(gate)
+	for seg_def: SegmentDef in _def.segments:
+		var zone: RouteSegmentZone = RouteSegmentZone.new()
+		_world.add_child(zone)
+		zone.setup(seg_def, _ball)
+		zone.segment_entered.connect(_on_segment_entered)
+		zone.segment_exited.connect(_on_segment_exited)
+		_segment_zones.append(zone)
+	_perturb_spans.clear()
+	_perturb_active = false
+	_perturb_seconds = 0.0
+	_perturb.perturb_changed.connect(_on_perturb_changed)
+	_perturb.setup(_def, _ball, _segment_zones)
+	_choice_tracker.setup(_def.choice_forks, _ball)
 
-func _clear_dampen_state() -> void:
-	if _dampen_slot >= 0:
-		ExperimentLog.log_event("perturb_off", {
-			"slot": _dampen_slot,
-			"gain": _dampen_factor,
-			"note": "window_end",
-		})
-	_dampen_slot = -1
-	_dampen_factor = 1.0
-	_dampen_left = 0.0
-	InputHub.reset_gains()
+## 扰动开关：开始时新开一段轨迹，结束时收尾。假扰动（baseline）永远收到 active=false。
+func _on_perturb_changed(active: bool, _slot: int, _gain: float) -> void:
+	if active == _perturb_active:
+		return
+	_perturb_active = active
 	if _hud != null:
-		_hud.set_dampen_active(-1, 1.0)
+		_hud.set_perturb_active(active, _state.elapsed)
+	if active:
+		_perturb_spans.append(PackedVector2Array([_ball.global_position]))
+	elif not _perturb_spans.is_empty():
+		# 只持续一两帧的扰动也留个点，结算图上画成标记
+		_perturb_spans[_perturb_spans.size() - 1].append(_ball.global_position)
+
+func _on_gate_attempt(gate_id: String, payload: Dictionary) -> void:
+	_active_gate_id = gate_id
+	var data: Dictionary = payload.duplicate()
+	data["event_type_hint"] = "gate_attempt"
+	ExperimentLog.log_event("gate_attempt", data)
+
+func _on_gate_failed(gate_id: String, payload: Dictionary) -> void:
+	_active_gate_id = gate_id
+	ExperimentLog.log_event("gate_failed", payload)
+	# 失败也要有撞墙级反馈：震屏 + 手柄震动，但不扣血
+	var impact: float = maxf(float(payload.get("impact_strength", 120.0)), 120.0)
+	_split_screen.shake(impact)
+	HapticHub.pulse_impact(false)
+
+func _on_gate_opened(gate_id: String, payload: Dictionary) -> void:
+	_active_gate_id = ""
+	ExperimentLog.log_event("gate_opened", payload)
+	_play_gate_break_feedback()
+
+## 撞开门：短顿帧 + 爆发震屏 + 大震动，对齐球被撞碎的冲击感。
+func _play_gate_break_feedback() -> void:
+	_split_screen.burst_shake()
+	HapticHub.pulse_impact(true)
+	Engine.time_scale = 0.12
+	await get_tree().create_timer(0.055, true, false, true).timeout
+	Engine.time_scale = 1.0
+
+func _on_segment_entered(segment_id: String, segment_type: String) -> void:
+	_active_segment_id = segment_id
+	_active_segment_type = segment_type
+	ExperimentLog.log_event("segment_enter", {
+		"segment_id": segment_id,
+		"component_id": segment_id,
+		"note": segment_type,
+		"core_x": _ball.global_position.x,
+		"core_y": _ball.global_position.y,
+	})
+
+func _on_segment_exited(segment_id: String, segment_type: String) -> void:
+	if _active_segment_id == segment_id:
+		_active_segment_id = ""
+		_active_segment_type = ""
+	ExperimentLog.log_event("segment_leave", {
+		"segment_id": segment_id,
+		"component_id": segment_id,
+		"note": segment_type,
+		"core_x": _ball.global_position.x,
+		"core_y": _ball.global_position.y,
+	})
 
 ## 定期采样球位置，供结算界面画核心轨迹
 func _sample_trail(delta: float) -> void:
+	if _perturb_active:
+		_perturb_seconds += delta
 	_trail_timer -= delta
 	if _trail_timer > 0.0 or _trail.size() >= 1200:
 		return
 	_trail_timer = 0.12
 	_trail.append(_ball.global_position)
+	# 扰动区间与主轨迹同频采样，结算图上就是"时间线的一段"
+	if _perturb_active and not _perturb_spans.is_empty():
+		_perturb_spans[_perturb_spans.size() - 1].append(_ball.global_position)
 
 ## 死亡时把当前路线归档为失败轨迹，并清空以便记录下一命
 func _archive_failed_trail() -> void:
@@ -398,11 +451,12 @@ func _setup_hud() -> void:
 	_hud = LevelHud.new()
 	_hud.name = "LevelHud"
 	add_child(_hud)
-	# 基线试次不显示紫色干扰带，避免误导
-	var dampen_for_hud: Vector2 = _def.dampen_window
-	if GameState.experiment_condition != "perturbation":
-		dampen_for_hud = Vector2.ZERO
-	_hud.setup(_state, _def.level_name, _def.time_limit, dampen_for_hud)
+	# 第四关从开局就在计时器下亮「干扰」灯；不预告具体时间窗
+	var show_jam_lamp: bool = (
+		_def.challenge_type == "imbalance"
+		and not _def.perturb_candidate_ids.is_empty()
+	)
+	_hud.setup(_state, _def.level_name, _def.time_limit, Vector2.ZERO, show_jam_lamp)
 
 ## 仅教学关 + 调试模式：左侧挂物理滑条，拖动即时生效。
 func _setup_physics_debug() -> void:
@@ -483,6 +537,7 @@ func _open_pause_menu() -> void:
 	if not _can_open_pause():
 		return
 	InputHub.input_frozen = true
+	_perturb.clear_active("pause")
 	ExperimentLog.log_event("pause", {"phase": _phase_name(_state.phase)})
 	_pause_menu.open_menu()
 	get_tree().paused = true
@@ -526,9 +581,11 @@ func _on_ball_damaged(_amount: float, _hp: float) -> void:
 	_split_screen.shake(180.0)
 	_hit_points.append(_ball.global_position)
 
-func _on_ball_collision(strength: float) -> void:
+func _on_ball_collision(strength: float, collision_category: String = PixelBall.COLLISION_ORDINARY) -> void:
+	_perturb.notify_collision()
 	ExperimentLog.log_event("collision", {
 		"impact_strength": strength,
+		"collision_category": collision_category,
 		"core_x": _ball.global_position.x,
 		"core_y": _ball.global_position.y,
 	})
@@ -609,6 +666,7 @@ func _respawn_sequence() -> void:
 	await get_tree().create_timer(0.2).timeout
 	InputHub.input_frozen = false
 	_respawning = false
+	_perturb.notify_respawn()
 	ExperimentLog.begin_life()
 
 func _on_goal_reached() -> void:
@@ -747,6 +805,9 @@ func _build_result(success: bool, stars: int) -> Dictionary:
 		"island": Vector2(island_px),
 		"spawn": _def.spawn_point,
 		"goal": _def.goal_point,
+		"perturb_spans": _perturb_spans.duplicate(),
+		"perturb_count": _perturb_spans.size(),
+		"perturb_seconds": _perturb_seconds,
 	}
 	var summary: Dictionary = ExperimentLog.summary_dict()
 	for key: Variant in summary.keys():
@@ -760,8 +821,7 @@ func _on_phase_changed(phase: LevelState.Phase) -> void:
 func _finish_trial(outcome: String, note: String = "") -> void:
 	if _trial_closed:
 		return
-	if _dampen_slot >= 0:
-		_clear_dampen_state()
+	_perturb.clear_active("trial_end")
 	ExperimentLog.end_trial(outcome, note)
 	_trial_closed = true
 

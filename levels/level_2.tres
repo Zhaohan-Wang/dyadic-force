@@ -1,23 +1,84 @@
-[gd_resource type="Resource" script_class="LevelDef" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="LevelDef" load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://resources/level_def.gd" id="1"]
+[ext_resource type="Script" path="res://resources/segment_def.gd" id="2"]
+
+[sub_resource type="Resource" id="Seg_accel_a"]
+script = ExtResource("2")
+segment_id = "l2_accel_a"
+segment_type = "acceleration"
+rect_position = Vector2(80, 500)
+rect_size = Vector2(700, 140)
+
+[sub_resource type="Resource" id="Seg_brake_1"]
+script = ExtResource("2")
+segment_id = "l2_brake_1"
+segment_type = "brake_approach"
+rect_position = Vector2(900, 480)
+rect_size = Vector2(220, 160)
+
+[sub_resource type="Resource" id="Seg_turn_1"]
+script = ExtResource("2")
+segment_id = "l2_turn_1"
+segment_type = "right_turn"
+rect_position = Vector2(1040, 300)
+rect_size = Vector2(200, 220)
+
+[sub_resource type="Resource" id="Seg_accel_b"]
+script = ExtResource("2")
+segment_id = "l2_accel_b"
+segment_type = "acceleration"
+rect_position = Vector2(200, 300)
+rect_size = Vector2(700, 140)
+
+[sub_resource type="Resource" id="Seg_brake_2"]
+script = ExtResource("2")
+segment_id = "l2_brake_2"
+segment_type = "brake_approach"
+rect_position = Vector2(80, 280)
+rect_size = Vector2(200, 160)
+
+[sub_resource type="Resource" id="Seg_turn_2"]
+script = ExtResource("2")
+segment_id = "l2_turn_2"
+segment_type = "left_turn"
+rect_position = Vector2(80, 120)
+rect_size = Vector2(200, 180)
+
+[sub_resource type="Resource" id="Seg_accel_c"]
+script = ExtResource("2")
+segment_id = "l2_accel_c"
+segment_type = "acceleration"
+rect_position = Vector2(280, 80)
+rect_size = Vector2(800, 140)
+
+[sub_resource type="Resource" id="Seg_recovery"]
+script = ExtResource("2")
+segment_id = "l2_recovery"
+segment_type = "recovery"
+rect_position = Vector2(1000, 80)
+rect_size = Vector2(200, 140)
 
 [resource]
 script = ExtResource("1")
-level_name = "LEVEL 2 - HEDGE MAZE"
+level_name = "LEVEL 2 - SWITCHBACK"
 level_id = "level_2"
-island_size = Vector2i(66, 34)
-layout_seed = 20260823
+challenge_type = "joint_brake"
+island_size = Vector2i(80, 42)
+layout_seed = 20260814
 obstacle_density = 1.0
 layout_style = "author"
-spawn_point = Vector2(96, 425)
-goal_point = Vector2(990, 180)
-route_centerline = PackedVector2Array(96, 425, 220, 425, 285, 410, 320, 300, 330, 190, 410, 110, 540, 110, 585, 205, 665, 190, 720, 130, 790, 190, 800, 270, 865, 275, 890, 350, 975, 350, 990, 180)
-route_corridor_half_width = 42.0
-route_completion_direction = Vector2(0, -1)
-time_limit = 90.0
+spawn_point = Vector2(100, 580)
+goal_point = Vector2(1180, 140)
+route_centerline = PackedVector2Array(100, 580, 400, 580, 800, 580, 1100, 580, 1140, 420, 900, 370, 500, 370, 160, 370, 140, 200, 300, 140, 700, 140, 1180, 140)
+route_corridor_half_width = 90.0
+route_completion_direction = Vector2(1, 0)
+time_limit = 120.0
+target_duration_s = 80.0
 ball_max_hp = 3.0
-death_time_penalty = 7.0
+death_time_penalty = 6.0
 tutorial_steps = PackedStringArray()
-intro_lines = PackedStringArray("THE ROUTE GETS LONGER AND TRICKIER.", "FOLLOW THE ARROWS ON THE GROUND.", "NARROW LANES — SLOW DOWN BEFORE TURNS.")
+intro_lines = PackedStringArray("LONG STRAIGHTS LEAD INTO SHARP TURNS.", "REACH THE PORTAL WITHIN 120 SECONDS.")
+dampen_window = Vector2(0, 0)
 is_practice = false
+segments = Array[ExtResource("2")]([SubResource("Seg_accel_a"), SubResource("Seg_brake_1"), SubResource("Seg_turn_1"), SubResource("Seg_accel_b"), SubResource("Seg_brake_2"), SubResource("Seg_turn_2"), SubResource("Seg_accel_c"), SubResource("Seg_recovery")])

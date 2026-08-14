@@ -54,6 +54,23 @@ const REVIEW_AGREEMENT_COLUMNS: PackedStringArray = [
 	"recovery_difference_median_ms",
 ]
 
+const GATE_SUMMARY_COLUMNS: PackedStringArray = [
+	"analysis_version", "session_id", "trial_id", "level_id", "gate_id",
+	"attempt_count", "fail_count", "opened", "first_success",
+	"first_forward_speed", "first_direction_cosine", "result_reason",
+]
+
+const TURN_SUMMARY_COLUMNS: PackedStringArray = [
+	"analysis_version", "session_id", "trial_id", "level_id",
+	"segment_id", "segment_type", "enter_ms", "exit_ms",
+	"entry_speed", "mean_speed", "outside_hits",
+]
+
+const CHOICE_SUMMARY_COLUMNS: PackedStringArray = [
+	"analysis_version", "session_id", "trial_id", "level_id", "fork_id",
+	"pref_a", "pref_b", "conflict", "committed_branch", "reversal_count",
+]
+
 ## 稳定入口：从原始日志重算所有派生文件。返回 false 表示输入或写出失败。
 static func export_session(paths: Dictionary, protocol: ExperimentProtocol = null) -> bool:
 	var active_protocol: ExperimentProtocol = protocol
@@ -126,6 +143,15 @@ static func export_session(paths: Dictionary, protocol: ExperimentProtocol = nul
 			perturbation_results.append(perturbation)
 
 	var dyad_results: Array[Dictionary] = analyze_dyad(trial_results, session_id)
+	var gate_results: Array[Dictionary] = []
+	var turn_results: Array[Dictionary] = []
+	var choice_results: Array[Dictionary] = []
+	for trial_id: String in trial_ids:
+		var trial_frames: Array[Dictionary] = _filter_trial(frames, trial_id)
+		var trial_events: Array[Dictionary] = _filter_trial(events, trial_id)
+		gate_results.append_array(_analyze_gates(trial_frames, trial_events, session_id))
+		turn_results.append_array(_analyze_turns(trial_frames, trial_events, session_id))
+		choice_results.append_array(_analyze_choices(trial_events, session_id))
 	var ok: bool = true
 	ok = _write_csv(analysis_dir.path_join("trial_summary.csv"), TRIAL_COLUMNS, trial_results) and ok
 	ok = _write_csv(
@@ -134,12 +160,157 @@ static func export_session(paths: Dictionary, protocol: ExperimentProtocol = nul
 		perturbation_results
 	) and ok
 	ok = _write_csv(analysis_dir.path_join("dyad_summary.csv"), DYAD_COLUMNS, dyad_results) and ok
+	ok = _write_csv(analysis_dir.path_join("gate_summary.csv"), GATE_SUMMARY_COLUMNS, gate_results) and ok
+	ok = _write_csv(analysis_dir.path_join("turn_summary.csv"), TURN_SUMMARY_COLUMNS, turn_results) and ok
+	ok = _write_csv(analysis_dir.path_join("choice_summary.csv"), CHOICE_SUMMARY_COLUMNS, choice_results) and ok
 	ok = _write_metadata(analysis_dir.path_join("analysis_metadata.csv"), session_id, active_protocol) and ok
 	ok = _export_review(
 		analysis_dir, session_id, perturbation_results, frames_by_trial,
 		active_protocol, force_scale
 	) and ok
 	return ok
+
+## 按门聚合 attempt / fail / open 事件。
+static func _analyze_gates(
+	frames: Array[Dictionary],
+	events: Array[Dictionary],
+	session_id: String,
+) -> Array[Dictionary]:
+	var by_gate: Dictionary = {}
+	var level_id: String = _first_value(frames, events, "level_id")
+	var trial_id: String = _first_value(frames, events, "trial_id")
+	for event: Dictionary in events:
+		var et: String = str(event.get("event_type", ""))
+		if et != "gate_attempt" and et != "gate_failed" and et != "gate_opened":
+			continue
+		var gate_id: String = str(event.get("component_id", event.get("note", "gate")))
+		if not by_gate.has(gate_id):
+			by_gate[gate_id] = {
+				"analysis_version": ExperimentProtocol.ANALYSIS_VERSION,
+				"session_id": session_id,
+				"trial_id": trial_id,
+				"level_id": level_id,
+				"gate_id": gate_id,
+				"attempt_count": 0,
+				"fail_count": 0,
+				"opened": 0,
+				"first_success": 0,
+				"first_forward_speed": "",
+				"first_direction_cosine": "",
+				"result_reason": "",
+			}
+		var row: Dictionary = by_gate[gate_id] as Dictionary
+		if et == "gate_attempt":
+			row["attempt_count"] = int(row["attempt_count"]) + 1
+			if str(row["first_forward_speed"]) == "":
+				row["result_reason"] = str(event.get("result_reason", ""))
+		elif et == "gate_failed":
+			row["fail_count"] = int(row["fail_count"]) + 1
+			row["result_reason"] = str(event.get("result_reason", row["result_reason"]))
+		elif et == "gate_opened":
+			row["opened"] = 1
+			if int(row["first_success"]) == 0:
+				row["first_success"] = 1
+				row["result_reason"] = "opened"
+	var out: Array[Dictionary] = []
+	for key: Variant in by_gate.keys():
+		out.append(by_gate[key] as Dictionary)
+	return out
+
+## 按弯道/减速路段聚合进入离开与速度。
+static func _analyze_turns(
+	frames: Array[Dictionary],
+	events: Array[Dictionary],
+	session_id: String,
+) -> Array[Dictionary]:
+	var level_id: String = _first_value(frames, events, "level_id")
+	var trial_id: String = _first_value(frames, events, "trial_id")
+	var out: Array[Dictionary] = []
+	var open: Dictionary = {}
+	for event: Dictionary in events:
+		var et: String = str(event.get("event_type", ""))
+		var seg_id: String = str(event.get("segment_id", event.get("component_id", "")))
+		var seg_type: String = str(event.get("note", ""))
+		if et == "segment_enter":
+			open[seg_id] = {
+				"analysis_version": ExperimentProtocol.ANALYSIS_VERSION,
+				"session_id": session_id,
+				"trial_id": trial_id,
+				"level_id": level_id,
+				"segment_id": seg_id,
+				"segment_type": seg_type,
+				"enter_ms": _number(event.get("trial_elapsed_ms", 0.0)),
+				"exit_ms": "",
+				"entry_speed": "",
+				"mean_speed": "",
+				"outside_hits": 0,
+			}
+		elif et == "segment_leave" and open.has(seg_id):
+			var row: Dictionary = open[seg_id] as Dictionary
+			row["exit_ms"] = _number(event.get("trial_elapsed_ms", 0.0))
+			var speeds: Array[float] = []
+			var enter_ms: float = _number(row["enter_ms"])
+			var exit_ms: float = _number(row["exit_ms"])
+			for frame: Dictionary in frames:
+				var t: float = _number(frame.get("trial_elapsed_ms", -1.0))
+				if t < enter_ms or t > exit_ms:
+					continue
+				speeds.append(_number(frame.get("speed", 0.0)))
+			if not speeds.is_empty():
+				row["entry_speed"] = speeds[0]
+				var sum: float = 0.0
+				for s: float in speeds:
+					sum += s
+				row["mean_speed"] = sum / float(speeds.size())
+			out.append(row)
+			open.erase(seg_id)
+	return out
+
+## 按岔路聚合偏好、冲突与最终提交。
+static func _analyze_choices(
+	events: Array[Dictionary],
+	session_id: String,
+) -> Array[Dictionary]:
+	var by_fork: Dictionary = {}
+	var level_id: String = ""
+	var trial_id: String = ""
+	for event: Dictionary in events:
+		level_id = str(event.get("level_id", level_id))
+		trial_id = str(event.get("trial_id", trial_id))
+		var et: String = str(event.get("event_type", ""))
+		var fork_id: String = str(event.get("component_id", ""))
+		if fork_id.is_empty():
+			continue
+		if not by_fork.has(fork_id):
+			by_fork[fork_id] = {
+				"analysis_version": ExperimentProtocol.ANALYSIS_VERSION,
+				"session_id": session_id,
+				"trial_id": trial_id,
+				"level_id": level_id,
+				"fork_id": fork_id,
+				"pref_a": "",
+				"pref_b": "",
+				"conflict": 0,
+				"committed_branch": "",
+				"reversal_count": 0,
+			}
+		var row: Dictionary = by_fork[fork_id] as Dictionary
+		match et:
+			"choice_preference_A":
+				row["pref_a"] = str(event.get("branch", ""))
+			"choice_preference_B":
+				row["pref_b"] = str(event.get("branch", ""))
+			"choice_conflict":
+				row["conflict"] = 1
+			"branch_committed":
+				row["committed_branch"] = str(event.get("branch", ""))
+			"branch_reversal":
+				row["reversal_count"] = int(row["reversal_count"]) + 1
+				row["committed_branch"] = str(event.get("branch", row["committed_branch"]))
+	var out: Array[Dictionary] = []
+	for key: Variant in by_fork.keys():
+		out.append(by_fork[key] as Dictionary)
+	return out
 
 ## 纯函数：输入一个 trial 的字典行，返回一行 trial_summary。
 static func analyze_trial(

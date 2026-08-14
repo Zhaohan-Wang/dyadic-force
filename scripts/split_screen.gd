@@ -263,7 +263,7 @@ func _apply_limits(cam: Camera2D) -> void:
 	cam.limit_smoothed = true
 
 ## 球碰撞冲击 → 两侧相机同步震屏（可被设置关闭）
-func _on_ball_impacted(strength: float) -> void:
+func _on_ball_impacted(strength: float, _collision_category: String = "") -> void:
 	if not GameState.shake_enabled:
 		return
 	if _cam_p1 == null or _cam_p2 == null:
@@ -274,7 +274,17 @@ func _on_ball_impacted(strength: float) -> void:
 
 ## 外部按需触发震屏（例如扣血反馈）
 func shake(strength: float) -> void:
-	_on_ball_impacted(strength)
+	_on_ball_impacted(strength, "")
+
+## 撞开门用的中等爆发震屏（介于普通撞击与死亡之间）
+func burst_shake() -> void:
+	if not GameState.shake_enabled:
+		return
+	for cam: SpringCamera2D in [_cam_p1, _cam_p2]:
+		if cam == null:
+			continue
+		cam.shake_max_offset = maxf(cam.shake_max_offset, 16.0)
+		cam.add_shake(14.0)
 
 ## 死亡爆炸用的重震屏（比普通撞击更大）
 func death_shake() -> void:

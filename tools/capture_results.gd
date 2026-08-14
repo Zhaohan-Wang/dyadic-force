@@ -22,17 +22,23 @@ func _run() -> void:
 		"hits": PackedVector2Array([Vector2(180, 120)]),
 		"spawn": Vector2(80, 80),
 		"goal": Vector2(400, 200),
+		# 第 4 关的隐藏扰动区间：轨迹图上要高亮，并多出一行统计
+		"perturb_spans": [PackedVector2Array([Vector2(200, 130), Vector2(300, 170)])],
+		"perturb_count": 1,
+		"perturb_seconds": 3.2,
 		"avg_force": 3.47,
 		"full_push_ratio": 0.42,
 		"fine_control_ratio": 0.28,
 		"experiment_condition": "baseline",
 	}
-	get_tree().change_scene_to_file("res://scenes/results_screen.tscn")
+	# 不能用 change_scene_to_file：本工具自己就是 current_scene，切场景会把自己释放掉。
+	var packed: PackedScene = load("res://scenes/results_screen.tscn") as PackedScene
+	var scene: Node = packed.instantiate()
+	get_tree().root.add_child(scene)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	await get_tree().create_timer(0.2).timeout
 
-	var scene: Node = get_tree().current_scene
 	var texts: Array[String] = []
 	_collect_label_texts(scene, texts)
 	var joined: String = " | ".join(texts)
@@ -40,6 +46,8 @@ func _run() -> void:
 	assert(not joined.contains("实验条件"), "condition row still present")
 	assert(joined.contains("精细控制"), "fine control should remain")
 	assert(joined.contains("02:05"), "time value missing: %s" % joined)
+	assert(joined.contains("偏移区间"), "perturb row missing: %s" % joined)
+	assert(joined.contains("1x 3.2s"), "perturb value missing: %s" % joined)
 
 	var panel: NinePatchRect = null
 	for child: Node in scene.get_children():

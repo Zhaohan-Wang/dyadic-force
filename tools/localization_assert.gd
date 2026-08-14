@@ -37,8 +37,19 @@ const ZH_BANNED: PackedStringArray = [
 	"EXPERIMENT SETUP", "DYAD ID", "PARTICIPANT A ID", "LOCK & CONTINUE",
 ]
 
+var _failed: bool = false
+
 func _ready() -> void:
 	_run.call_deferred()
+
+## 记一个失败：不用 assert，中断协程会让进程卡住、还会漏掉后续检查
+func _fail(msg: String) -> void:
+	_failed = true
+	printerr("[FAIL] %s" % msg)
+
+func _expect(cond: bool, msg: String) -> void:
+	if not cond:
+		_fail(msg)
 
 func _run() -> void:
 	var scene_root: Window = get_tree().root
@@ -65,14 +76,14 @@ func _run() -> void:
 			if language == "zh":
 				_assert_zh_page(page_path, visible_text)
 				if page_path == "res://scenes/title_screen.tscn":
-					assert(visible_text.contains("手柄震动"), "haptic setting is not Chinese")
+					_expect(visible_text.contains("手柄震动"), "haptic setting is not Chinese")
 			else:
-				assert(
+				_expect(
 					visible_text.contains(EN_REQUIRED[page_path]),
 					"English page missing: %s" % page_path,
 				)
 				if page_path == "res://scenes/title_screen.tscn":
-					assert(
+					_expect(
 						visible_text.contains("CONTROLLER VIBRATION"),
 						"haptic setting is not English",
 					)
@@ -80,14 +91,18 @@ func _run() -> void:
 			await get_tree().process_frame
 
 	_assert_level_resources(game_state)
-	_assert_level_content(game_state, input_hub)
+	# 必须 await：这是协程，不等它就会先打印 OK、把失败吞掉
+	await _assert_level_content(game_state, input_hub)
 	_assert_pixel_outline()
-	print("localization_assert OK")
 	game_state.set("current_level", null)
 	game_state.set("last_result", {})
 	input_hub.call("clear_slots")
 	await get_tree().process_frame
 	await get_tree().process_frame
+	if _failed:
+		get_tree().quit(1)
+		return
+	print("localization_assert OK")
 	get_tree().quit(0)
 
 func _prepare_result(game_state: Node) -> void:
@@ -101,7 +116,7 @@ func _prepare_result(game_state: Node) -> void:
 	game_state.set("last_result", {
 		"success": true,
 		"stars": 3,
-		"level_name": "LEVEL 1 - MEADOW",
+		"level_name": "LEVEL 1 - GATE RUN",
 		"level_id": "level_1",
 		"elapsed": 12.0,
 		"hp": 3.0,
@@ -133,12 +148,12 @@ func _collect_text(node: Node) -> String:
 	return "\n".join(lines)
 
 func _assert_zh_page(page_path: String, visible_text: String) -> void:
-	assert(
+	_expect(
 		visible_text.contains(ZH_REQUIRED[page_path]),
 		"Chinese page missing: %s" % page_path,
 	)
 	for banned: String in ZH_BANNED:
-		assert(
+		_expect(
 			not visible_text.contains(banned),
 			"Chinese page leaks '%s': %s" % [banned, page_path],
 		)
@@ -153,9 +168,16 @@ func _assert_level_content(game_state: Node, input_hub: Node) -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var visible_text: String = _collect_text(level)
-	assert(visible_text.contains("准备开始！"), "level intro title is not Chinese")
-	assert(visible_text.contains("正式关卡有时间限制！"), "level intro line is not Chinese")
-	assert(not visible_text.contains("GET READY!"), "level intro leaks English title")
+	_expect(visible_text.contains("准备开始！"), "level intro title is not Chinese")
+	_expect(not visible_text.contains("GET READY!"), "level intro leaks English title")
+	# 须知正文逐条按关卡资源核对，避免写死字符串后关卡改文案就失效
+	var def: LevelDef = load("res://levels/level_1.tres") as LevelDef
+	for source: String in def.intro_lines:
+		var translated: String = str(game_state.call("localize_content", source))
+		_expect(visible_text.contains(translated),
+			"level intro line is not Chinese: %s" % source)
+		_expect(not visible_text.contains(source),
+			"level intro leaks English line: %s" % source)
 	level.queue_free()
 	await get_tree().process_frame
 
@@ -176,8 +198,9 @@ func _assert_level_resources(game_state: Node) -> void:
 		source_lines.append_array(definition.tutorial_steps)
 		for source: String in source_lines:
 			var translated: String = str(game_state.call("localize_content", source))
-			assert(translated != source, "level text lacks Chinese mapping: %s" % source)
-			assert(_contains_cjk(translated), "level translation is not Chinese: %s" % translated)
+			_expect(translated != source, "level text lacks Chinese mapping: %s" % source)
+			_expect(_contains_cjk(translated),
+				"level translation is not Chinese: %s" % translated)
 
 func _contains_cjk(text: String) -> bool:
 	for index: int in text.length():
@@ -189,10 +212,10 @@ func _contains_cjk(text: String) -> bool:
 func _assert_pixel_outline() -> void:
 	var world_text: Control = MenuKit.make_world_caption("练习 00:00", 28)
 	add_child(world_text)
-	assert(world_text.get_child_count() >= 25, "pixel outline layers are incomplete")
+	_expect(world_text.get_child_count() >= 25, "pixel outline layers are incomplete")
 	var face: Label = world_text.get_node_or_null("Face") as Label
-	assert(face != null, "pixel outline face layer missing")
+	_expect(face != null, "pixel outline face layer missing")
 	for child: Node in world_text.get_children():
 		var layer: Label = child as Label
-		assert(layer != null and layer.label_settings.outline_size == 0, "Godot outline leaked")
+		_expect(layer != null and layer.label_settings.outline_size == 0, "Godot outline leaked")
 	world_text.free()

@@ -40,16 +40,29 @@ var _jam_badge_label: Control = null
 var _jam_slot: int = -1
 var _jam_factor: float = 1.0
 var _clock_base_modulate: Color = Color.WHITE
+## 扰动开始时的已用时（秒）；-1 = 当前没有扰动
+var _skew_start_elapsed: float = -1.0
+## 正在生长的那段标记（深色描边框）；结束后留在条上当历史刻度，不回收
+var _skew_band: ColorRect = null
+## 描边框内部的琥珀色实体
+var _skew_band_fill: ColorRect = null
+var _skew_badge: Control = null
+var _skew_badge_label: Control = null
+var _skew_lamp: ColorRect = null
+## 第 4 关：计时器从开局就亮「干扰」灯，不等人走进候选段
+var _show_jam_lamp: bool = false
 
 func setup(
 	state: LevelState,
 	level_name: String,
 	total_time: float = 0.0,
 	dampen_window: Vector2 = Vector2.ZERO,
+	show_jam_lamp: bool = false,
 ) -> void:
 	_state = state
 	_time_total = total_time
 	_dampen_window = dampen_window
+	_show_jam_lamp = show_jam_lamp
 	layer = 20
 	_build()
 	_show_level_name(level_name)
@@ -163,6 +176,11 @@ func _build_timer_bar() -> void:
 	_time_label.size = Vector2(220, 48)
 	_root.add_child(_time_label)
 
+	_build_skew_badge()
+	if _show_jam_lamp:
+		# 第四关一进关就亮灯：玩家必须一眼看见「这里会干扰」
+		_show_jam_lamp_idle()
+
 ## 时间轴上的“输入缩减”警示带：
 ## 进度条从右往左缩短，已用时 t 对应位置 x = inner_x + inner_w * (1 - t/total)，
 ## 因此时段 [start, end] 在条上是 [pos(end), pos(start)] 这段区间。
@@ -233,6 +251,108 @@ func set_dampen_active(slot: int, factor: float) -> void:
 	_clock.modulate = COL_JAM_HOT
 	if _clock_spring != null:
 		_clock_spring.punch(0.7)
+
+## 「干扰」灯：秒数正下方居中。第四关从开局就亮，扰动进行中再加亮。
+func _build_skew_badge() -> void:
+	_skew_badge = Control.new()
+	_skew_badge.visible = false
+	_skew_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_skew_badge.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_skew_badge.position = Vector2(-78, 132)
+	_skew_badge.size = Vector2(156, 36)
+	_root.add_child(_skew_badge)
+	var bg: ColorRect = ColorRect.new()
+	bg.size = Vector2(156, 34)
+	bg.color = Color(COL_JAM, 0.92)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_skew_badge.add_child(bg)
+	# 左侧圆点就是「灯」：待命暗紫，扰动中亮紫闪
+	_skew_lamp = ColorRect.new()
+	_skew_lamp.position = Vector2(10, 10)
+	_skew_lamp.size = Vector2(14, 14)
+	_skew_lamp.color = COL_JAM_HOT
+	_skew_lamp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_skew_badge.add_child(_skew_lamp)
+	_skew_badge_label = MenuKit.make_pixel_outline_text(
+		GameState.ui("干扰", "JAM"), 20, MenuKit.COL_CREAM, 2
+	)
+	_skew_badge_label.position = Vector2(32, 4)
+	_skew_badge_label.size = Vector2(116, 28)
+	_skew_badge_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_skew_badge.add_child(_skew_badge_label)
+
+## 开局待命态：灯常亮，钟表带一点紫色，告诉玩家本关会干扰
+func _show_jam_lamp_idle() -> void:
+	if _skew_badge != null:
+		_skew_badge.visible = true
+	if _clock != null:
+		_clock.modulate = COL_JAM
+	if _time_label != null:
+		MenuKit.set_pixel_outline_color(_time_label, COL_JAM_HOT)
+
+## 关卡通知：隐藏扰动开始（active=true）/ 结束。
+## 时间条上开一段琥珀色标记，秒数与钟表同时变色，玩家能看出"刚才那段被动过手脚"。
+func set_perturb_active(active: bool, elapsed: float) -> void:
+	# 第四关的「干扰」灯从开局就亮；扰动结束也不关，只退回待命色
+	if _skew_badge != null:
+		_skew_badge.visible = _show_jam_lamp or active
+	if active:
+		_skew_start_elapsed = elapsed
+		_skew_band = _make_skew_band(elapsed)
+		if _clock != null:
+			_clock.modulate = COL_JAM_HOT
+		if _clock_spring != null:
+			_clock_spring.punch(0.8)
+	else:
+		_skew_start_elapsed = -1.0
+		if _skew_band_fill != null:
+			# 结束后压暗一档，和正在进行的那段区分开
+			_skew_band_fill.color = Color(COL_JAM, 0.8)
+			_skew_band_fill = null
+		_skew_band = null
+		if _clock != null:
+			if _show_jam_lamp:
+				_clock.modulate = COL_JAM
+			elif _jam_slot >= 0:
+				_clock.modulate = COL_JAM_HOT
+			else:
+				_clock.modulate = _clock_base_modulate
+	if _time_label != null:
+		var label_color: Color = MenuKit.COL_CREAM
+		if active:
+			label_color = COL_JAM_HOT
+		elif _show_jam_lamp:
+			label_color = COL_JAM_HOT
+		MenuKit.set_pixel_outline_color(_time_label, label_color)
+
+## 时间条上的已用时坐标：条从右往左缩短，已用 t 秒对应 x = inner_x + inner_w * (1 - t/total)
+func _bar_x_for(seconds: float) -> float:
+	return _bar_inner_x \
+		+ _bar_inner_w * (1.0 - clampf(seconds / _time_total, 0.0, 1.0))
+
+## 新开一段扰动标记（宽度随时间往左长）；练习关没有时间条时返回 null。
+## 倒计时条中段本身就是琥珀色，所以标记必须带深色描边才认得出来。
+func _make_skew_band(elapsed: float) -> ColorRect:
+	if _timer_frame == null or _time_total <= 0.0:
+		_skew_band_fill = null
+		return null
+	var band: ColorRect = ColorRect.new()
+	# 和轨道同高同顶：紫色只铺在时间轴里面，不再探出面板
+	band.position = Vector2(_bar_x_for(elapsed) - 8.0, 20.0)
+	band.size = Vector2(8.0, 24.0)
+	band.color = Color(MenuKit.COL_INK, 0.7)
+	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_timer_frame.add_child(band)
+	# 排在钟表之前：竖条压在表盘上会把表糊掉
+	if _clock != null:
+		_timer_frame.move_child(band, _clock.get_index())
+	_skew_band_fill = ColorRect.new()
+	_skew_band_fill.position = Vector2(1.0, 1.0)
+	_skew_band_fill.size = band.size - Vector2(2.0, 2.0)
+	_skew_band_fill.color = Color(COL_JAM_HOT, 0.95)
+	_skew_band_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	band.add_child(_skew_band_fill)
+	return band
 
 ## 练习关：世界字幕级 PRACTICE 标签——交代"无倒计时"，不抢红心与教程气泡
 func _build_practice_tag() -> void:
@@ -334,11 +454,30 @@ func _on_time(time_left: float, elapsed: float, timed: bool) -> void:
 			_dampen_mark.color = Color(COL_JAM if not active else COL_JAM_HOT, mark_a)
 			if _dampen_label != null:
 				_dampen_label.modulate.a = 1.0 if (inside or active) else 0.75
+		# 第四关干扰灯：待命慢闪，扰动中快闪
+		if _show_jam_lamp and _skew_lamp != null:
+			var lamp_hot: bool = _skew_start_elapsed >= 0.0
+			var pulse: float = 0.72 + 0.28 * sin(elapsed * (10.0 if lamp_hot else 3.2))
+			_skew_lamp.color = Color(COL_JAM_HOT if lamp_hot else COL_JAM, pulse)
+		# 扰动进行中：标记从"当前时刻"往左长，并做呼吸闪烁
+		if _skew_band != null and _skew_start_elapsed >= 0.0:
+			var x_right: float = _bar_x_for(_skew_start_elapsed)
+			var x_left: float = _bar_x_for(elapsed)
+			_skew_band.position.x = x_left
+			_skew_band.size.x = maxf(x_right - x_left, 8.0)
+			if _skew_band_fill != null:
+				_skew_band_fill.size = _skew_band.size - Vector2(2.0, 2.0)
+				_skew_band_fill.color = Color(
+					COL_JAM_HOT, 0.78 + 0.2 * sin(elapsed * 9.0)
+				)
 		# 时间紧张：每跳一秒钟表蹦一下（越紧张越用力）
 		if t != _prev_seconds and (ratio < 0.3 or time_left < 12.0):
 			_clock_spring.punch(0.65 if time_left < 12.0 else 0.4)
 		if time_left < 12.0:
 			MenuKit.set_pixel_outline_color(_time_label, MenuKit.COL_DANGER)
+		elif _show_jam_lamp:
+			# 每秒改字不会丢色：第四关秒数一直保持紫色
+			MenuKit.set_pixel_outline_color(_time_label, COL_JAM_HOT)
 		_prev_seconds = t
 	else:
 		var t: int = int(floor(elapsed))

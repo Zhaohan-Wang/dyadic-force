@@ -1,6 +1,6 @@
 # 实验数据字典
 
-本文档对应原始 schema `2.0.0` 与分析版本 `1.0.0`。原始数据只有
+本文档对应原始 schema `2.1.0` 与分析版本 `1.0.0`。原始数据只有
 `session.csv`、`frames.csv`、`events.csv`；其余文件均可从这三份原始 CSV 重算。
 
 ## 1. 保存位置、编码与缺失值
@@ -23,7 +23,7 @@
 
 | 字段 | 类型 / 单位 | 定义 |
 |---|---|---|
-| `schema_version` | 字符串 | 原始表结构版本，当前为 `2.0.0`。 |
+| `schema_version` | 字符串 | 原始表结构版本，当前为 `2.1.0`。 |
 | `analysis_version` | 字符串 | 派生算法版本，当前为 `1.0.0`。 |
 | `session_id` | 字符串 | 一次应用运行的唯一 ID，格式 `<组号>_<UTC文件夹名>`，例如 `101_2026-08-13_051600Z`。 |
 | `trial_id` | 字符串 | 每次关卡启动的唯一 ID，格式 `<session>-T####`。 |
@@ -108,6 +108,11 @@ READY/RUNNING 阶段每个物理帧至多一行，A/B 按参与者而不是设�
 | `route_segment` | 整数 | 最近中心线线段索引。 |
 | `inside_boundary` | 0/1 | `route_error_distance <= route_corridor_half_width`。 |
 | `completion_dir_x`, `completion_dir_y` | 单位向量 | 关卡完成方向。 |
+| `task_segment_id` | 字符串/空 | 当前主要实验路段 ID（`RouteSegmentZone`）。 |
+| `task_segment_type` | 枚举/空 | `start`、`acceleration`、`brake_approach`、`left_turn`、`right_turn`、`recovery`、`perturb_candidate`、`choice_approach`、`choice_branch`。 |
+| `active_gate_id` | 字符串/空 | 当前接触或判定中的门 ID。 |
+| `active_choice_id` | 字符串/空 | 当前活跃岔路 ID。 |
+| `current_branch` | 字符串/空 | 已提交分支标签（如 `narrow` / `wide`）。 |
 
 ## 5. `events.csv`
 
@@ -127,6 +132,12 @@ READY/RUNNING 阶段每个物理帧至多一行，A/B 按参与者而不是设�
 | `core_x`, `core_y` | px/空 | 事件位置。 |
 | `outcome` | 枚举/空 | `success`、`timeout`、`restarted`、`quit`、`aborted`。 |
 | `note` | 受控诊断文本/空 | 机器生成说明；参与者自由文本不得写入。 |
+| `component_id` | 字符串/空 | 门 / 路段 / 岔路等组件 ID。 |
+| `segment_id` | 字符串/空 | 关联实验路段 ID。 |
+| `collision_category` | 枚举/空 | `ordinary_obstacle`、`breakable_gate`、`world_boundary`。 |
+| `result_reason` | 受控枚举/空 | 如门失败原因 `speed_low`、`missing_A`、`missing_B`、`direction_conflict`、`off_axis`。 |
+| `branch` | 字符串/空 | 岔路偏好或提交分支。 |
+| `sequence_version` | 字符串/空 | 扰动隐藏序列版本。 |
 
 ### 5.1 事件枚举
 
@@ -144,7 +155,17 @@ READY/RUNNING 阶段每个物理帧至多一行，A/B 按参与者而不是设�
 | `restart_requested` | 暂停菜单请求重开；随后 `trial_end(restarted)`。 |
 | `quit_mid_trial` | 中途返回选关或关卡树意外退出；随后 `trial_end(quit)`。 |
 | `controller_disconnect`, `controller_reconnect` | 手柄热插拔；slot 尽量保留断开前映射。 |
-| `perturb_on`, `perturb_off` | 输入缩减段开始/结束。 |
+| `perturb_on`, `perturb_off` | 输入缩减段开始/结束（第 4 关路段触发）。 |
+| `sham_perturbation` | Baseline 在相同候选路段的假触发（不改增益）。 |
+| `perturb_candidate_enter` | 进入扰动候选路段并准备判定。 |
+| `perturb_skipped` | 候选路段不合格而跳过。 |
+| `segment_enter`, `segment_leave` | 球心进入/离开不可见实验路段。 |
+| `gate_attempt`, `gate_failed`, `gate_opened` | 可撞门尝试 / 失败 / 成功开门。 |
+| `choice_started` | 进入岔路观察区。 |
+| `choice_preference_A`, `choice_preference_B` | A/B 初始持续输入偏好。 |
+| `choice_conflict` | 双方初始偏好不一致。 |
+| `branch_committed` | 球穿过确认线，锁定最终分支。 |
+| `branch_reversal` | 退出已选分支并改走另一支。 |
 | `goal_enter`, `goal_leave` | 进入/离开终点区域。 |
 | `success` | 达成目标。 |
 | `timeout_failure` | 限时耗尽。 |
@@ -213,7 +234,13 @@ READY/RUNNING 阶段每个物理帧至多一行，A/B 按参与者而不是设�
 `same_leader_stability=max(A_count,B_count)/(A_count+B_count)`，以及完成时间、路线误差和
 最大进度的均值。完成时间均值只纳入非空值。
 
-### 6.4 复核文件
+### 6.4 `gate_summary.csv` / `turn_summary.csv` / `choice_summary.csv`
+
+- `gate_summary.csv`：每个门一行，汇总 `attempt_count`、`fail_count`、是否 `opened`、首次成功标记与失败原因。
+- `turn_summary.csv`：每个进入/离开的实验路段一行，含 `segment_type`、进入/离开时间与速度统计；刹车与弯道共用此表。
+- `choice_summary.csv`：每个岔路一行，含 A/B 初始偏好、是否冲突、最终分支与反转次数。
+
+### 6.5 复核文件
 
 - `review_queue.csv`：按 `sha256(session_id|perturbation_id)` 稳定排序，抽取
   `ceil(扰动数×0.20)`。自动字段不可手改；人工填写
@@ -225,7 +252,7 @@ READY/RUNNING 阶段每个物理帧至多一行，A/B 按参与者而不是设�
   以及起点和恢复差值的均值/中位数。
 - 重算前分析器会按 `perturbation_id` 读取旧 `review_queue.csv`，保留四个人工填写字段。
 
-### 6.5 `analysis_metadata.csv`
+### 6.6 `analysis_metadata.csv`
 
 记录本次 `analysis_version` 与全部阈值：活动 0.20、冲突余弦 -0.50、启动持续 100 ms、
 力平滑 100 ms、互相关范围 ±1000 ms/最少活动 500 ms、扰动基线 200 ms、补偿投影 0.12/

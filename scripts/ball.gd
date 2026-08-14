@@ -60,8 +60,14 @@ extends RigidBody2D
 		kinetic_friction = value
 @export var spin_accel: float = 0.0
 
-## 球撞到障碍/围墙时发出（参数 = 速度突变量）
-signal impacted(strength: float)
+## 碰撞类别常量（写入日志 collision_category）
+const COLLISION_ORDINARY: String = "ordinary_obstacle"
+const COLLISION_GATE: String = "breakable_gate"
+const COLLISION_BOUNDARY: String = "world_boundary"
+const COLLISION_UNKNOWN: String = "ordinary_obstacle"
+
+## 球撞到障碍/围墙时发出（强度 + 碰撞分类）
+signal impacted(strength: float, collision_category: String)
 
 ## 球当前姿态（局部 -> 视图），随滚动/自转累积
 var _orientation: Basis = Basis.IDENTITY
@@ -70,6 +76,10 @@ var _prev_velocity: Vector2 = Vector2.ZERO
 var _idle_resistances: Array[float] = []
 ## 每槽滤波后的应用输入（世界方向 × 幅值 0～1）
 var _applied_moves: Array[Vector2] = []
+## 刚与可撞门接触过：弹开/碰撞体已消失时仍按门处理，避免误判成普通墙扣血
+var _gate_contact_grace: float = 0.0
+## 门接触宽限（秒）
+const GATE_CONTACT_GRACE_S: float = 0.28
 ## 调试/测试可读的上一帧协作状态
 var last_slip: float = 0.0
 var last_traction: float = 1.0
@@ -97,6 +107,9 @@ func _ready() -> void:
 			_applied_moves.append(Vector2.ZERO)
 	_prev_velocity = linear_velocity
 	_push_orientation_to_shader()
+	# 启用接触监测，以便冲击时区分门 / 普通障碍 / 世界边界
+	contact_monitor = true
+	max_contacts_reported = 8
 
 func _physics_process(delta: float) -> void:
 	var active_count: int = 0
@@ -199,10 +212,49 @@ func _physics_process(delta: float) -> void:
 	_orientation = _orientation.orthonormalized()
 	_push_orientation_to_shader()
 
+	# 必须在覆盖 _prev_velocity 之前通知门：absorbent 门已经把当前速度吃掉了
+	_notify_gate_impacts(_prev_velocity)
 	var impact: float = (_prev_velocity - linear_velocity).length()
 	if impact >= impact_threshold:
-		impacted.emit(impact)
+		impacted.emit(impact, _resolve_collision_category())
 	_prev_velocity = linear_velocity
+	# 宽限在本帧冲击判定之后再衰减，避免刚好过期的那帧被误判成普通墙
+	if _gate_contact_grace > 0.0:
+		_gate_contact_grace = maxf(0.0, _gate_contact_grace - delta)
+
+## 把撞前速度交给正在碰到的门，供半开/撞开判定使用。
+func _notify_gate_impacts(pre_velocity: Vector2) -> void:
+	var bodies: Array[Node2D] = get_colliding_bodies()
+	for body: Node2D in bodies:
+		if body is BreakableGate:
+			(body as BreakableGate).notify_impact(pre_velocity)
+
+## 标记刚撞到可撞门：后续几帧的冲击一律免伤。
+func mark_gate_contact() -> void:
+	_gate_contact_grace = GATE_CONTACT_GRACE_S
+
+## 是否处于门接触宽限（给生命系统做二次免伤判断）。
+func is_gate_contact() -> bool:
+	return _gate_contact_grace > 0.0
+
+## 根据当前接触体的分组判定碰撞类别；门优先于普通障碍。
+func _resolve_collision_category() -> String:
+	# 宽限期内一律算门：失败刹停或成功关碰撞后，接触列表可能已经空了
+	if _gate_contact_grace > 0.0:
+		return COLLISION_GATE
+	var bodies: Array[Node2D] = get_colliding_bodies()
+	var saw_boundary: bool = false
+	for body: Node2D in bodies:
+		if body.is_in_group("breakable_gate"):
+			mark_gate_contact()
+			return COLLISION_GATE
+		if body.is_in_group("world_boundary"):
+			saw_boundary = true
+		elif body.is_in_group("ordinary_obstacle"):
+			return COLLISION_ORDINARY
+	if saw_boundary:
+		return COLLISION_BOUNDARY
+	return COLLISION_UNKNOWN
 
 func _slot_is_digital(slot: int) -> bool:
 	var kind: InputHub.SourceKind = InputHub.slot_kind(slot)
@@ -211,7 +263,7 @@ func _slot_is_digital(slot: int) -> bool:
 		or kind == InputHub.SourceKind.KEYBOARD_ARROWS
 	)
 
-## 对目标输入做上升/下降时间滤波；松手更快，按键建立更慢。
+## 对目标输入做笛卡尔滤波：松手更快；反向时先过原点再加速，不会把力拧到上下。
 func _filter_move(
 	current: Vector2,
 	target: Vector2,
@@ -219,24 +271,19 @@ func _filter_move(
 	release_s: float,
 	delta: float,
 ) -> Vector2:
-	var cur_len: float = current.length()
-	var tgt_len: float = target.length()
-	var cur_dir: Vector2 = current / cur_len if cur_len > 0.001 else Vector2.ZERO
-	var tgt_dir: Vector2 = target / tgt_len if tgt_len > 0.001 else cur_dir
-	if tgt_dir == Vector2.ZERO and cur_dir == Vector2.ZERO:
+	if current == Vector2.ZERO and target == Vector2.ZERO:
 		return Vector2.ZERO
-
-	var tau: float = rise_s if tgt_len >= cur_len else release_s
+	var reversing: bool = (
+		current.length() > 0.05
+		and target.length() > 0.05
+		and current.dot(target) < 0.0
+	)
+	var tau: float = release_s if reversing or target.length() < current.length() else rise_s
 	var alpha: float = 1.0 - exp(-delta / maxf(tau, 0.001))
-	var next_len: float = lerpf(cur_len, tgt_len, alpha)
-	var next_dir: Vector2 = cur_dir.lerp(tgt_dir, alpha)
-	if next_dir.length() > 0.001:
-		next_dir = next_dir.normalized()
-	else:
-		next_dir = tgt_dir
-	if next_len < 0.001:
+	var next: Vector2 = current.lerp(target, alpha)
+	if next.length() < 0.001:
 		return Vector2.ZERO
-	return next_dir * next_len
+	return next
 
 func _update_idle_resistance(index: int, idle: bool, delta: float) -> void:
 	var target: float = 1.0 if idle else 0.0

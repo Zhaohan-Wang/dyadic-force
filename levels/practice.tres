@@ -6,6 +6,7 @@
 script = ExtResource("1")
 level_name = "TUTORIAL"
 level_id = "practice"
+challenge_type = "tutorial"
 island_size = Vector2i(36, 16)
 layout_seed = 20260801
 obstacle_density = 0.7

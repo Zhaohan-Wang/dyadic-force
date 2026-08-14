@@ -63,6 +63,9 @@ var _slots: Array[InputSource] = []
 var input_frozen: bool = false
 ## 每个槽位的输入增益（0～1）；第 3 关“输入缩减”时段由关卡驱动，平时恒为 1.0
 var slot_gains: Array[float] = [1.0, 1.0]
+## 每个槽位的力方向偏置（弧度，屏幕坐标顺时针为正）；第 4 关隐藏扰动用，平时恒为 0。
+## 只衰减幅值在直线推进时几乎察觉不到，转一个小角度才会让球明显偏出中线。
+var slot_force_bias_rad: Array[float] = [0.0, 0.0]
 ## joy_id → JoyCalibration；仅当前连接会话有效
 var _joy_calibrations: Dictionary[int, JoyCalibration] = {}
 ## 力映射参数（可由实验配置覆盖）
@@ -186,22 +189,51 @@ func get_force_sample(slot: int) -> ForceMapper.Sample:
 	var gain: float = clampf(slot_gains[slot], 0.0, 1.0)
 	match src.kind:
 		SourceKind.KEYBOARD_WASD:
-			var key_dir: Vector2 = Input.get_vector("p1_left", "p1_right", "p1_up", "p1_down")
-			return ForceMapper.map_digital(key_dir, gain, f_max)
+			var key_dir: Vector2 = _digital_move("p1_left", "p1_right", "p1_up", "p1_down")
+			return _apply_force_bias(ForceMapper.map_digital(key_dir, gain, f_max), slot)
 		SourceKind.KEYBOARD_ARROWS:
-			var arrow_dir: Vector2 = Input.get_vector("p2_left", "p2_right", "p2_up", "p2_down")
-			return ForceMapper.map_digital(arrow_dir, gain, f_max)
+			var arrow_dir: Vector2 = _digital_move("p2_left", "p2_right", "p2_up", "p2_down")
+			return _apply_force_bias(ForceMapper.map_digital(arrow_dir, gain, f_max), slot)
 		SourceKind.JOYPAD:
-			return _sample_joypad(src.joy_id, gain)
+			return _apply_force_bias(_sample_joypad(src.joy_id, gain), slot)
 	return ForceMapper.Sample.new()
+
+## 把槽位的方向偏置旋进最终力。raw / calibrated / m 保持原样，
+## 保证日志里"玩家实际推了哪儿"和"游戏最终用了哪个力"都能复算。
+func _apply_force_bias(sample: ForceMapper.Sample, slot: int) -> ForceMapper.Sample:
+	var bias: float = slot_force_bias_rad[slot]
+	if is_zero_approx(bias) or sample.force == Vector2.ZERO:
+		return sample
+	sample.force = sample.force.rotated(bias)
+	sample.move = sample.move.rotated(bias)
+	return sample
+
+## 键盘四向优先：单独按左右时不混进微弱上下，避免“按左却斜着走”。
+## 同时按住两轴（明确斜向）仍保留 8 向。
+func _digital_move(neg_x: StringName, pos_x: StringName, neg_y: StringName, pos_y: StringName) -> Vector2:
+	var raw: Vector2 = Input.get_vector(neg_x, pos_x, neg_y, pos_y)
+	if raw == Vector2.ZERO:
+		return Vector2.ZERO
+	var ax: float = absf(raw.x)
+	var ay: float = absf(raw.y)
+	if ax > 0.01 and ay > 0.01:
+		# 两键同时按下才算斜向；否则清掉弱轴
+		if ax >= ay * 1.35:
+			raw.y = 0.0
+		elif ay >= ax * 1.35:
+			raw.x = 0.0
+	if raw.length() < 0.001:
+		return Vector2.ZERO
+	return raw.normalized()
 
 ## 兼容旧调用：返回 force/Fmax（方向连续、幅值 = m2·gain）。
 func get_move_vector(slot: int) -> Vector2:
 	return get_force_sample(slot).move
 
-## 重置全部槽位增益为 1（关卡进出时调用，防止残留到其他场景）
+## 重置全部槽位增益与方向偏置（关卡进出时调用，防止残留到其他场景）
 func reset_gains() -> void:
 	slot_gains = [1.0, 1.0]
+	slot_force_bias_rad = [0.0, 0.0]
 
 ## 读取手柄左摇杆原始轴（未校准、未映射）。
 func read_raw_stick(joy_id: int) -> Vector2:

@@ -6,7 +6,7 @@ const ROOT_DIR: String = "user://experiments"
 const LEGACY_ROOT_DIR: String = "user://experiment_logs"
 const RAW_FOLDER: String = "raw"
 const ANALYSIS_FOLDER: String = "analysis"
-const SCHEMA_VERSION: String = "2.0.0"
+const SCHEMA_VERSION: String = "2.1.0"
 const FLUSH_INTERVAL_S: float = 1.0
 const FULL_PUSH_THRESHOLD: float = 0.90
 const FINE_MIN: float = 0.20
@@ -41,6 +41,8 @@ const FRAME_COLUMNS: PackedStringArray = [
 	"route_error_x", "route_error_y", "route_signed_error",
 	"route_error_distance", "route_progress", "route_max_progress",
 	"route_segment", "inside_boundary", "completion_dir_x", "completion_dir_y",
+	"task_segment_id", "task_segment_type", "active_gate_id",
+	"active_choice_id", "current_branch",
 ]
 const EVENT_COLUMNS: PackedStringArray = [
 	"schema_version", "session_id", "monotonic_time_us", "session_elapsed_ms",
@@ -49,6 +51,8 @@ const EVENT_COLUMNS: PackedStringArray = [
 	"event_type", "phase", "slot", "device_id", "gain", "impact_strength",
 	"damage", "remaining_hp", "time_penalty_s", "core_x", "core_y",
 	"outcome", "note",
+	"component_id", "segment_id", "collision_category", "result_reason",
+	"branch", "sequence_version",
 ]
 
 var _session_id: String = ""
@@ -70,6 +74,12 @@ var _trial_active: bool = false
 var _last_physics_frame: int = -1
 var _completion_direction: Vector2 = Vector2.RIGHT
 var _route_tracker: RouteTracker = RouteTracker.new()
+## 当前任务路段 / 门 / 岔路上下文（由 Level 每帧刷新）
+var _task_segment_id: String = ""
+var _task_segment_type: String = ""
+var _active_gate_id: String = ""
+var _active_choice_id: String = ""
+var _current_branch: String = ""
 
 var _frames_file: FileAccess = null
 var _events_file: FileAccess = null
@@ -175,6 +185,20 @@ func end_trial(outcome: String, note: String = "") -> bool:
 		push_warning("ExperimentLog: derived analysis export failed")
 	return _last_export_ok
 
+## 由关卡每帧刷新任务上下文，写入 frames.csv 扩展列。
+func set_task_context(
+	segment_id: String,
+	segment_type: String,
+	gate_id: String,
+	choice_id: String,
+	branch: String,
+) -> void:
+	_task_segment_id = segment_id
+	_task_segment_type = segment_type
+	_active_gate_id = gate_id
+	_active_choice_id = choice_id
+	_current_branch = branch
+
 ## 每个物理帧严格一行 A/B 宽表，事件与帧共享同一时钟生成器。
 func log_frame(physics_delta: float, phase: String, ball: RigidBody2D) -> void:
 	if not _trial_active or ball == null:
@@ -213,6 +237,8 @@ func log_frame(physics_delta: float, phase: String, ball: RigidBody2D) -> void:
 		route["signed_error"], route["distance"], route["progress"],
 		route["max_progress"], route["segment"], route["inside_boundary"],
 		_completion_direction.x, _completion_direction.y,
+		_task_segment_id, _task_segment_type, _active_gate_id,
+		_active_choice_id, _current_branch,
 	])
 	_frames_buffer.append(csv_row(row))
 
@@ -235,6 +261,12 @@ func log_event(event_type: String, data: Dictionary = {}) -> void:
 		data.get("core_y", ""),
 		data.get("outcome", ""),
 		data.get("note", ""),
+		data.get("component_id", data.get("gate_id", "")),
+		data.get("segment_id", ""),
+		data.get("collision_category", ""),
+		data.get("result_reason", ""),
+		data.get("branch", ""),
+		data.get("sequence_version", ""),
 	])
 	_events_buffer.append(csv_row(row))
 

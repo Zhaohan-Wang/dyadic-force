@@ -1,23 +1,64 @@
-[gd_resource type="Resource" script_class="LevelDef" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="LevelDef" load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://resources/level_def.gd" id="1"]
+[ext_resource type="Script" path="res://resources/gate_def.gd" id="2"]
+
+[sub_resource type="Resource" id="Gate_1"]
+script = ExtResource("2")
+gate_id = "gate_1"
+position = Vector2(520, 176)
+normal = Vector2(1, 0)
+opening_width = 180.0
+thickness = 18.0
+speed_threshold = 240.0
+direction_cosine_min = 0.68
+activity_ratio_min = 0.58
+window_s = 0.4
+
+[sub_resource type="Resource" id="Gate_2"]
+script = ExtResource("2")
+gate_id = "gate_2"
+position = Vector2(1220, 464)
+normal = Vector2(1, 0)
+opening_width = 180.0
+thickness = 18.0
+speed_threshold = 260.0
+direction_cosine_min = 0.78
+activity_ratio_min = 0.68
+window_s = 0.4
+
+[sub_resource type="Resource" id="Gate_3"]
+script = ExtResource("2")
+gate_id = "gate_3"
+position = Vector2(1900, 176)
+normal = Vector2(1, 0)
+opening_width = 180.0
+thickness = 18.0
+speed_threshold = 300.0
+direction_cosine_min = 0.84
+activity_ratio_min = 0.75
+window_s = 0.4
 
 [resource]
 script = ExtResource("1")
-level_name = "LEVEL 1 - MEADOW"
+level_name = "LEVEL 1 - GATE RUN"
 level_id = "level_1"
-island_size = Vector2i(72, 26)
-layout_seed = 20260811
+challenge_type = "joint_start"
+island_size = Vector2i(140, 40)
+layout_seed = 20260813
 obstacle_density = 1.0
 layout_style = "author"
-spawn_point = Vector2(96, 320)
-goal_point = Vector2(1080, 220)
-route_centerline = PackedVector2Array(96, 320, 160, 340, 220, 350, 300, 180, 370, 160, 430, 350, 500, 360, 560, 200, 640, 180, 700, 360, 770, 350, 830, 170, 900, 160, 960, 350, 1020, 340, 1060, 210, 1080, 220)
-route_corridor_half_width = 46.0
+spawn_point = Vector2(120, 176)
+goal_point = Vector2(2160, 176)
+route_centerline = PackedVector2Array(120, 176, 520, 176, 800, 176, 800, 464, 1220, 464, 1520, 464, 1520, 176, 1900, 176, 2160, 176)
+route_corridor_half_width = 110.0
 route_completion_direction = Vector2(1, 0)
-time_limit = 90.0
+time_limit = 120.0
+target_duration_s = 80.0
 ball_max_hp = 3.0
 death_time_penalty = 5.0
 tutorial_steps = PackedStringArray()
-intro_lines = PackedStringArray("OFFICIAL LEVELS ARE TIMED!", "REACH THE PORTAL WITHIN 90 SECONDS", "OR THE RUN IS OVER.")
+intro_lines = PackedStringArray("BUILD SPEED TO BREAK THROUGH THE GATES.", "REACH THE PORTAL WITHIN 120 SECONDS.")
+dampen_window = Vector2(0, 0)
 is_practice = false
+gates = Array[ExtResource("2")]([SubResource("Gate_1"), SubResource("Gate_2"), SubResource("Gate_3")])

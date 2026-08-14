@@ -22,7 +22,7 @@ class Sample:
 	var m1: float = 0.0
 	## 灵敏度曲线后的幅值 m1^γ
 	var m2: float = 0.0
-	## 槽位增益（第 3 关扰动时 <1）
+	## 槽位增益（第 4 关隐藏扰动时 <1）
 	var gain: float = 1.0
 	## 最终虚拟作用力向量 F = Fmax · m2 · r/m · gain
 	var force: Vector2 = Vector2.ZERO

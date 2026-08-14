@@ -11,6 +11,8 @@ class TrailMap:
 	## 死亡 / 重置前的失败尝试
 	var failed_trails: Array = []
 	var hits: PackedVector2Array = PackedVector2Array()
+	## 隐藏扰动生效期间走过的路段，高亮在轨迹上（第 4 关"偏移区间"）
+	var perturb_spans: Array = []
 	var spawn_p: Vector2 = Vector2.ZERO
 	var goal_p: Vector2 = Vector2.ZERO
 	## 迷你漩涡旋转相位
@@ -42,6 +44,22 @@ class TrailMap:
 		if trail.size() >= 2:
 			var pts: PackedVector2Array = _to_screen(trail, off, s)
 			draw_polyline(pts, Color(MenuKit.COL_INK, 0.95), 8.5)
+
+		# 扰动区间压在轨迹上方：粗高亮 + 起点菱形，标出"这段控制被动过"
+		for span: Variant in perturb_spans:
+			var raw_span: PackedVector2Array = span as PackedVector2Array
+			if raw_span.is_empty():
+				continue
+			var span_pts: PackedVector2Array = _to_screen(raw_span, off, s)
+			if span_pts.size() >= 2:
+				draw_polyline(span_pts, Color(0.96, 0.62, 0.16, 0.92), 5.0)
+			var head: Vector2 = span_pts[0]
+			draw_colored_polygon(PackedVector2Array([
+				head + Vector2(0.0, -9.0),
+				head + Vector2(9.0, 0.0),
+				head + Vector2(0.0, 9.0),
+				head + Vector2(-9.0, 0.0),
+			]), Color(0.96, 0.62, 0.16))
 
 		# 出生点旗
 		var sp: Vector2 = off + spawn_p * s
@@ -145,6 +163,8 @@ const PANEL_PAD_X: float = 44.0
 const PANEL_PAD_Y: float = 28.0
 ## 除路线图外的固定占位：标题/星星/统计/数据状态/按钮/间距/内边距
 const PANEL_CHROME_HEIGHT: float = 640.0
+## 单行统计的占位高度（行高 + 间距）
+const STAT_ROW_HEIGHT: float = 42.0
 
 func _ready() -> void:
 	_build()
@@ -174,14 +194,19 @@ func _build() -> void:
 	map.trail = result.get("trail", PackedVector2Array()) as PackedVector2Array
 	map.failed_trails = result.get("failed_trails", []) as Array
 	map.hits = result.get("hits", PackedVector2Array()) as PackedVector2Array
+	map.perturb_spans = result.get("perturb_spans", []) as Array
 	map.spawn_p = result.get("spawn", Vector2.ZERO) as Vector2
 	map.goal_p = result.get("goal", Vector2.ZERO) as Vector2
 	var map_height: float = map.recommended_height(PANEL_WIDTH - PANEL_PAD_X * 2.0)
 
+	# 第 4 关多一行"偏移区间"，面板要相应加高，否则按钮会被挤出去
+	var perturb_count: int = int(result.get("perturb_count", 0))
+	var extra_rows: float = STAT_ROW_HEIGHT if perturb_count > 0 else 0.0
+
 	# 按内容估算高度，保证统计与按钮都在面板内；用 offset 居中，避免改 size 后锚点漂移。
 	var panel_size: Vector2 = Vector2(
 		PANEL_WIDTH,
-		clampf(PANEL_CHROME_HEIGHT + map_height, 720.0, 980.0),
+		clampf(PANEL_CHROME_HEIGHT + map_height + extra_rows, 720.0, 1020.0),
 	)
 	var panel: NinePatchRect = MenuKit.make_panel(panel_size)
 	_center_control(panel, panel_size)
@@ -256,6 +281,13 @@ func _build() -> void:
 	box.add_child(_make_stat_row(
 		GameState.ui("精细控制", "FINE CTRL"), "%d%%" % int(round(fine_ratio * 100.0))
 	))
+	# 只有真的发生过隐藏扰动才显示，避免给其他关卡加噪音
+	if perturb_count > 0:
+		var perturb_seconds: float = float(result.get("perturb_seconds", 0.0))
+		box.add_child(_make_stat_row(
+			GameState.ui("偏移区间", "SKEW"),
+			"%dx %.1fs" % [perturb_count, perturb_seconds],
+		))
 
 	# ---- 实验数据落盘状态与可操作入口（仅实验模式）----
 	if GameState.experiment_mode:

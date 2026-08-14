@@ -1,23 +1,82 @@
-[gd_resource type="Resource" script_class="LevelDef" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="LevelDef" load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://resources/level_def.gd" id="1"]
+[ext_resource type="Script" path="res://resources/segment_def.gd" id="2"]
+
+[sub_resource type="Resource" id="Seg_pc1"]
+script = ExtResource("2")
+segment_id = "l4_perturb_a"
+segment_type = "perturb_candidate"
+rect_position = Vector2(700, 265)
+rect_size = Vector2(320, 250)
+
+[sub_resource type="Resource" id="Seg_pc2"]
+script = ExtResource("2")
+segment_id = "l4_perturb_b"
+segment_type = "perturb_candidate"
+rect_position = Vector2(1550, 705)
+rect_size = Vector2(320, 250)
+
+[sub_resource type="Resource" id="Seg_pc3"]
+script = ExtResource("2")
+segment_id = "l4_perturb_c"
+segment_type = "perturb_candidate"
+rect_position = Vector2(800, 1130)
+rect_size = Vector2(320, 250)
+
+[sub_resource type="Resource" id="Seg_start"]
+script = ExtResource("2")
+segment_id = "l4_start"
+segment_type = "start"
+rect_position = Vector2(300, 300)
+rect_size = Vector2(300, 220)
+
+[sub_resource type="Resource" id="Seg_rec1"]
+script = ExtResource("2")
+segment_id = "l4_recovery_plaza"
+segment_type = "recovery"
+rect_position = Vector2(760, 700)
+rect_size = Vector2(400, 250)
+
+[sub_resource type="Resource" id="Seg_rec2"]
+script = ExtResource("2")
+segment_id = "l4_recovery_finish"
+segment_type = "recovery"
+rect_position = Vector2(1000, 1520)
+rect_size = Vector2(420, 240)
 
 [resource]
 script = ExtResource("1")
-level_name = "LEVEL 4 - SWITCHBACK FIELD"
+level_name = "LEVEL 4 - UNSTEADY TRAIL"
 level_id = "level_4"
-island_size = Vector2i(72, 38)
-layout_seed = 20260824
+challenge_type = "imbalance"
+island_size = Vector2i(153, 122)
+layout_seed = 20260816
 obstacle_density = 1.0
 layout_style = "author"
-spawn_point = Vector2(100, 540)
-goal_point = Vector2(1000, 130)
-route_centerline = PackedVector2Array(100, 540, 500, 540, 900, 540, 1000, 500, 1000, 340, 850, 340, 500, 340, 180, 340, 120, 290, 120, 130, 500, 130, 1000, 130)
-route_corridor_half_width = 46.0
-route_completion_direction = Vector2(1, 0)
-time_limit = 90.0
+spawn_point = Vector2(350, 360)
+goal_point = Vector2(370, 1650)
+route_centerline = PackedVector2Array(350, 360, 545, 355, 741, 356, 929, 376, 1120, 390, 1300, 377, 1500, 370, 1699, 389, 1880, 430, 2068, 496, 2171, 627, 2077, 783, 1884, 824, 1696, 827, 1511, 791, 1330, 783, 1145, 824, 945, 835, 768, 790, 594, 826, 464, 957, 508, 1128, 659, 1231, 859, 1258, 1049, 1251, 1242, 1202, 1442, 1195, 1634, 1237, 1819, 1283, 2008, 1333, 2120, 1480, 2000, 1606, 1813, 1637, 1616, 1628, 1418, 1592, 1236, 1603, 1042, 1651, 842, 1651, 654, 1615, 467, 1627, 370, 1650)
+route_corridor_half_width = 175.0
+route_completion_direction = Vector2(-1, 0)
+time_limit = 120.0
+target_duration_s = 80.0
 ball_max_hp = 3.0
-death_time_penalty = 8.0
+death_time_penalty = 7.0
 tutorial_steps = PackedStringArray()
-intro_lines = PackedStringArray("THREE WIDE LANES. TWO FULL TURNS.", "USE THE OPEN ENDS TO SWITCH DIRECTION.", "BUILD SPEED ON THE STRAIGHTS; BRAKE BEFORE EACH TURN.")
+intro_lines = PackedStringArray("CONTROL MAY FEEL UNSTEADY HERE.", "REACH THE PORTAL WITHIN 120 SECONDS.")
+dampen_window = Vector2(0, 0)
 is_practice = false
+segments = Array[ExtResource("2")]([SubResource("Seg_start"), SubResource("Seg_pc1"), SubResource("Seg_pc2"), SubResource("Seg_pc3"), SubResource("Seg_rec1"), SubResource("Seg_rec2")])
+perturb_candidate_ids = PackedStringArray("l4_perturb_a", "l4_perturb_b", "l4_perturb_c")
+perturb_sequence_version = "v1"
+perturb_sequence_seed = 20260816
+perturb_target_count = 16
+perturb_continuous = true
+perturb_duration_min_s = 10.0
+perturb_duration_max_s = 14.0
+perturb_gain_min = 0.45
+perturb_gain_max = 0.6
+perturb_min_gap_s = 0.8
+perturb_lateral_deg_min = 24.0
+perturb_lateral_deg_max = 34.0

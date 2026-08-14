@@ -1,24 +1,117 @@
-[gd_resource type="Resource" script_class="LevelDef" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="LevelDef" load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://resources/level_def.gd" id="1"]
+[ext_resource type="Script" path="res://resources/segment_def.gd" id="2"]
+[ext_resource type="Script" path="res://resources/gate_def.gd" id="3"]
+
+[sub_resource type="Resource" id="Seg_t1"]
+script = ExtResource("2")
+segment_id = "l3_turn_tight_right"
+segment_type = "right_turn"
+rect_position = Vector2(2130, 430)
+rect_size = Vector2(280, 320)
+
+[sub_resource type="Resource" id="Seg_t2"]
+script = ExtResource("2")
+segment_id = "l3_turn_tight_left"
+segment_type = "left_turn"
+rect_position = Vector2(415, 895)
+rect_size = Vector2(280, 320)
+
+[sub_resource type="Resource" id="Seg_t3"]
+script = ExtResource("2")
+segment_id = "l3_turn_gentle_right"
+segment_type = "right_turn"
+rect_position = Vector2(1180, 780)
+rect_size = Vector2(300, 250)
+
+[sub_resource type="Resource" id="Seg_t4"]
+script = ExtResource("2")
+segment_id = "l3_turn_gentle_left"
+segment_type = "left_turn"
+rect_position = Vector2(1450, 690)
+rect_size = Vector2(300, 250)
+
+[sub_resource type="Resource" id="Seg_t5"]
+script = ExtResource("2")
+segment_id = "l3_turn_sweep_left"
+segment_type = "left_turn"
+rect_position = Vector2(1070, 310)
+rect_size = Vector2(270, 230)
+
+[sub_resource type="Resource" id="Seg_t6"]
+script = ExtResource("2")
+segment_id = "l3_turn_sweep_right"
+segment_type = "right_turn"
+rect_position = Vector2(1330, 290)
+rect_size = Vector2(270, 230)
+
+[sub_resource type="Resource" id="Seg_t7"]
+script = ExtResource("2")
+segment_id = "l3_turn_hairpin_right_b"
+segment_type = "right_turn"
+rect_position = Vector2(2060, 1380)
+rect_size = Vector2(300, 300)
+
+[sub_resource type="Resource" id="Seg_rec1"]
+script = ExtResource("2")
+segment_id = "l3_recovery_1"
+segment_type = "recovery"
+rect_position = Vector2(1780, 780)
+rect_size = Vector2(320, 220)
+
+[sub_resource type="Resource" id="Seg_rec2"]
+script = ExtResource("2")
+segment_id = "l3_recovery_2"
+segment_type = "recovery"
+rect_position = Vector2(1380, 1560)
+rect_size = Vector2(400, 220)
+
+[sub_resource type="Resource" id="Gate_1"]
+script = ExtResource("3")
+gate_id = "l3_gate_1"
+position = Vector2(750, 329)
+normal = Vector2(1, 0)
+opening_width = 180.0
+thickness = 18.0
+speed_threshold = 300.0
+direction_cosine_min = 0.84
+activity_ratio_min = 0.75
+window_s = 0.4
+
+[sub_resource type="Resource" id="Gate_2"]
+script = ExtResource("3")
+gate_id = "l3_gate_2"
+position = Vector2(1085, 1622)
+normal = Vector2(-1, 0)
+opening_width = 180.0
+thickness = 18.0
+speed_threshold = 300.0
+direction_cosine_min = 0.84
+activity_ratio_min = 0.75
+window_s = 0.4
 
 [resource]
 script = ExtResource("1")
-level_name = "LEVEL 3 - FINAL DASH"
+level_name = "LEVEL 3 - WOODLAND"
 level_id = "level_3"
-island_size = Vector2i(66, 34)
-layout_seed = 20260823
+challenge_type = "turn_coord"
+island_size = Vector2i(157, 121)
+layout_seed = 20260815
 obstacle_density = 1.0
 layout_style = "author"
-spawn_point = Vector2(96, 425)
-goal_point = Vector2(990, 180)
-route_centerline = PackedVector2Array(96, 425, 220, 425, 285, 410, 320, 300, 330, 190, 410, 110, 540, 110, 585, 205, 665, 190, 720, 130, 790, 190, 800, 270, 865, 275, 890, 350, 975, 350, 990, 180)
-route_corridor_half_width = 42.0
-route_completion_direction = Vector2(0, -1)
-time_limit = 90.0
+spawn_point = Vector2(330, 335)
+goal_point = Vector2(350, 1660)
+route_centerline = PackedVector2Array(330, 335, 523, 326, 713, 326, 900, 340, 1090, 402, 1282, 417, 1480, 400, 1660, 448, 1846, 480, 2029, 437, 2201, 502, 2268, 662, 2178, 819, 1988, 876, 1798, 850, 1620, 810, 1437, 867, 1254, 898, 1070, 837, 890, 828, 717, 891, 572, 1015, 593, 1199, 733, 1306, 915, 1316, 1111, 1276, 1306, 1285, 1496, 1329, 1686, 1301, 1884, 1271, 2067, 1305, 2201, 1416, 2136, 1563, 1955, 1589, 1760, 1626, 1577, 1658, 1380, 1643, 1202, 1611, 1010, 1631, 814, 1647, 619, 1621, 431, 1643, 350, 1660)
+route_corridor_half_width = 150.0
+route_completion_direction = Vector2(-1, 0)
+time_limit = 120.0
+target_duration_s = 80.0
 ball_max_hp = 3.0
-death_time_penalty = 8.0
+death_time_penalty = 7.0
 tutorial_steps = PackedStringArray()
-intro_lines = PackedStringArray("SIGNAL JAM ALERT!", "ONLY IN PERTURBATION CONDITION:", "FROM 8S TO 50S ONE INPUT DROPS TO 50%.", "WATCH THE PURPLE ZONE ON THE TIMER.")
-dampen_window = Vector2(8, 50)
+intro_lines = PackedStringArray("FOLLOW THE TRAIL THROUGH THE WOODS.", "REACH THE PORTAL WITHIN 120 SECONDS.")
+dampen_window = Vector2(0, 0)
 is_practice = false
+segments = Array[ExtResource("2")]([SubResource("Seg_t1"), SubResource("Seg_t2"), SubResource("Seg_t3"), SubResource("Seg_t4"), SubResource("Seg_t5"), SubResource("Seg_t6"), SubResource("Seg_t7"), SubResource("Seg_rec1"), SubResource("Seg_rec2")])
+gates = Array[ExtResource("3")]([SubResource("Gate_1"), SubResource("Gate_2")])

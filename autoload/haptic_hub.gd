@@ -65,10 +65,19 @@ func confirm_calibration(joy_id: int) -> void:
 	if Input.get_connected_joypads().has(joy_id):
 		_pulse(joy_id, 0.85, 1.0, 0.30)
 
+## 关卡内非扣血撞击（撞门成败）：走与扣血相同的时序，避免 Switch Pro 吞脉冲。
+func pulse_impact(large: bool) -> void:
+	if not _level_active:
+		return
+	_start_impact_pulse(large)
+
 ## 扣血震动：与确认同一时序（停 → 等帧 → 强脉冲）。半格小震，≥1 格大震。
 func pulse_damage(amount: float) -> void:
 	if not _level_active or amount <= 0.0:
 		return
+	_start_impact_pulse(HapticProfile.is_large_hit(amount))
+
+func _start_impact_pulse(large: bool) -> void:
 	if GameState.haptic_strength <= 0.001:
 		return
 	var devices: Array[int] = _devices_to_pulse()
@@ -77,7 +86,6 @@ func pulse_damage(amount: float) -> void:
 
 	_damage_token += 1
 	var token: int = _damage_token
-	var large: bool = HapticProfile.is_large_hit(amount)
 
 	for joy_id: int in devices:
 		Input.stop_joy_vibration(joy_id)

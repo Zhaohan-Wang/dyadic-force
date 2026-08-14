@@ -1,0 +1,7 @@
+Top-down sprites in this folder are cropped from third-party packs.
+Do not redistribute the original packs.
+
+- Pixel Adventure 1 (Pixel Frog)
+  Dust particle used by the gate-break burst.
+
+Gate posts reuse the Sprout Lands fence atlas already in assets/tiles/fences.png.

@@ -51,7 +51,7 @@ func _process(delta: float) -> void:
 		_clear_blink_modulate()
 	_push_shader_flash()
 
-func _on_impacted(strength: float) -> void:
+func _on_impacted(strength: float, collision_category: String = PixelBall.COLLISION_ORDINARY) -> void:
 	if _state == null or _ball == null:
 		return
 	if _state.phase != LevelState.Phase.RUNNING and _state.phase != LevelState.Phase.READY:
@@ -59,6 +59,10 @@ func _on_impacted(strength: float) -> void:
 	if _i_frames > 0.0:
 		return
 	if strength < damage_threshold:
+		return
+	# 可撞门：任何接触都不扣血（成败、蹭边、弹开后的冲击宽限均走此分支）
+	if collision_category == PixelBall.COLLISION_GATE or _ball.is_gate_contact():
+		impact_logged.emit(strength, 0.0, _state.hp)
 		return
 	var amount: float = _damage_from_impact(strength)
 	_i_frames = i_frame_duration
