@@ -13,7 +13,7 @@ func _run() -> void:
 	input_hub.call("join_slot", 1, 2)
 	input_hub.set("input_frozen", false)
 	input_hub.call("reset_gains")
-	game_state.set("experiment_condition", "perturbation")
+	game_state.set("protocol_version", "pilot-1.0")
 	game_state.set("current_level", load("res://levels/level_4.tres"))
 
 	var level: Node = (load("res://scenes/level.tscn") as PackedScene).instantiate()

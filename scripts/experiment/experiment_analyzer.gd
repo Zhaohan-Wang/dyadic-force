@@ -1,18 +1,24 @@
 class_name ExperimentAnalyzer
 extends RefCounted
-## 只读取 frames.csv/events.csv 的纯分析与派生导出；绝不回写原始日志。
+## 只读取 raw CSV 的纯分析与结果导出；绝不回写原始日志。
+## 默认只写 results/ 中有数据的表；人工复核走 export_review_package()。
+
+const RESULT_FILES: PackedStringArray = [
+	"trial_results.csv", "perturbation_results.csv", "gate_results.csv",
+	"segment_results.csv", "choice_results.csv",
+]
 
 const TRIAL_COLUMNS: PackedStringArray = [
 	"analysis_version", "session_id", "trial_id", "level_id", "level_attempt_index",
-	"experiment_condition", "outcome", "trial_duration_ms", "completion_time_ms",
-	"direction_cosine_mean", "direction_cosine_median", "direction_valid_ms",
-	"intensity_difference_mean", "intensity_difference_p95", "intensity_difference_max",
-	"conflict_ratio", "simultaneous_active_ms", "A_start_ms", "B_start_ms",
-	"startup_difference_ms", "startup_status", "xcorr_lag_ms", "xcorr_peak",
-	"xcorr_leader", "xcorr_confidence", "xcorr_status", "correction_A",
-	"correction_B", "trial_leader", "collision_count", "death_count",
-	"mean_route_error", "p95_route_error", "max_route_error", "max_progress",
-	"outside_boundary_ms", "restart_count", "quit_count", "route_length",
+	"protocol_version",
+	"outcome", "completion_time_ms", "direction_cosine_mean", "direction_cosine_median",
+	"conflict_ratio", "startup_difference_ms", "startup_status", "trial_leader",
+	"collision_count", "death_count", "mean_route_error", "max_progress",
+	"trial_duration_ms", "direction_valid_ms", "simultaneous_active_ms", "xcorr_status",
+	"A_start_ms", "B_start_ms", "intensity_difference_mean", "intensity_difference_p95",
+	"intensity_difference_max", "xcorr_lag_ms", "xcorr_peak", "xcorr_leader",
+	"xcorr_confidence", "correction_A", "correction_B", "p95_route_error",
+	"max_route_error", "outside_boundary_ms", "route_length",
 ]
 
 const PERTURBATION_COLUMNS: PackedStringArray = [
@@ -25,12 +31,21 @@ const PERTURBATION_COLUMNS: PackedStringArray = [
 	"overshoot_ratio", "overshoot_round_trips",
 ]
 
-const DYAD_COLUMNS: PackedStringArray = [
-	"analysis_version", "session_id", "scope", "level_id", "trial_count",
-	"success_count", "success_rate", "restart_count", "quit_count",
-	"A_leader_count", "B_leader_count", "ambiguous_count", "A_leader_ratio",
-	"B_leader_ratio", "ambiguous_ratio", "same_leader_stability",
-	"mean_completion_time_ms", "mean_route_error", "mean_max_progress",
+const GATE_COLUMNS: PackedStringArray = [
+	"analysis_version", "session_id", "trial_id", "level_id", "gate_id",
+	"attempt_count", "fail_count", "opened",
+	"first_forward_speed", "first_direction_cosine", "result_reason",
+]
+
+const SEGMENT_COLUMNS: PackedStringArray = [
+	"analysis_version", "session_id", "trial_id", "level_id",
+	"segment_id", "segment_type", "enter_ms", "exit_ms",
+	"entry_speed", "mean_speed", "outside_hits",
+]
+
+const CHOICE_COLUMNS: PackedStringArray = [
+	"analysis_version", "session_id", "trial_id", "level_id", "fork_id",
+	"pref_a", "pref_b", "conflict", "committed_branch", "reversal_count",
 ]
 
 const REVIEW_QUEUE_COLUMNS: PackedStringArray = [
@@ -39,56 +54,71 @@ const REVIEW_QUEUE_COLUMNS: PackedStringArray = [
 	"svg_path", "manual_valid", "manual_onset_ms", "manual_recovery_ms", "note",
 ]
 
-const REVIEW_WINDOW_COLUMNS: PackedStringArray = [
-	"analysis_version", "session_id", "perturbation_id", "trial_id",
-	"relative_ms", "route_signed_error", "route_error_distance", "speed",
-	"angular_velocity_rad_s", "A_force_x", "A_force_y", "B_force_x",
-	"B_force_y", "compensation_projection", "automatic_compensation_onset",
-	"automatic_recovery",
-]
-
-const REVIEW_AGREEMENT_COLUMNS: PackedStringArray = [
-	"analysis_version", "session_id", "reviewed_count", "classification_agreement_rate",
-	"onset_within_tolerance_rate", "onset_difference_mean_ms",
-	"onset_difference_median_ms", "recovery_difference_mean_ms",
-	"recovery_difference_median_ms",
-]
-
-const GATE_SUMMARY_COLUMNS: PackedStringArray = [
-	"analysis_version", "session_id", "trial_id", "level_id", "gate_id",
-	"attempt_count", "fail_count", "opened", "first_success",
-	"first_forward_speed", "first_direction_cosine", "result_reason",
-]
-
-const TURN_SUMMARY_COLUMNS: PackedStringArray = [
-	"analysis_version", "session_id", "trial_id", "level_id",
-	"segment_id", "segment_type", "enter_ms", "exit_ms",
-	"entry_speed", "mean_speed", "outside_hits",
-]
-
-const CHOICE_SUMMARY_COLUMNS: PackedStringArray = [
-	"analysis_version", "session_id", "trial_id", "level_id", "fork_id",
-	"pref_a", "pref_b", "conflict", "committed_branch", "reversal_count",
-]
-
-## 稳定入口：从原始日志重算所有派生文件。返回 false 表示输入或写出失败。
+## 稳定入口：从原始日志重算 results/ 中有数据的结果表。返回 false 表示输入或写出失败。
 static func export_session(paths: Dictionary, protocol: ExperimentProtocol = null) -> bool:
-	var active_protocol: ExperimentProtocol = protocol
-	if active_protocol == null:
-		active_protocol = ExperimentProtocol.new()
-	var directory: String = str(paths.get("directory", ""))
-	if directory.is_empty():
+	var active_protocol: ExperimentProtocol = protocol if protocol != null else ExperimentProtocol.new()
+	var analyzed: Dictionary = analyze_session(paths, active_protocol)
+	if analyzed.is_empty():
 		return false
-	var analysis_dir: String = str(paths.get("analysis_directory", directory))
-	if analysis_dir.is_empty():
-		analysis_dir = directory
-	if DirAccess.make_dir_recursive_absolute(analysis_dir) != OK and not DirAccess.dir_exists_absolute(analysis_dir):
+	var results_dir: String = str(paths.get("results_directory", ""))
+	if results_dir.is_empty():
+		results_dir = str(paths.get("directory", "")).path_join("results")
+	if results_dir.is_empty():
 		return false
-	var session_rows: Array[Dictionary] = _read_csv(str(paths.get("session", "")))
-	var frames: Array[Dictionary] = _read_csv(str(paths.get("frames", "")))
-	var events: Array[Dictionary] = _read_csv(str(paths.get("events", "")))
+	if DirAccess.make_dir_recursive_absolute(results_dir) != OK and not DirAccess.dir_exists_absolute(results_dir):
+		return false
+	var outputs: Dictionary = {}
+	var ok: bool = true
+	ok = _write_result_csv(results_dir, "trial_results.csv", TRIAL_COLUMNS, analyzed["trial_results"], outputs) and ok
+	ok = _write_result_csv(
+		results_dir, "perturbation_results.csv", PERTURBATION_COLUMNS,
+		analyzed["perturbation_results"], outputs
+	) and ok
+	ok = _write_result_csv(results_dir, "gate_results.csv", GATE_COLUMNS, analyzed["gate_results"], outputs) and ok
+	ok = _write_result_csv(
+		results_dir, "segment_results.csv", SEGMENT_COLUMNS, analyzed["segment_results"], outputs
+	) and ok
+	ok = _write_result_csv(
+		results_dir, "choice_results.csv", CHOICE_COLUMNS, analyzed["choice_results"], outputs
+	) and ok
+	ok = _write_manifest(
+		results_dir.path_join("analysis_manifest.json"),
+		analyzed["session"],
+		active_protocol,
+		outputs
+	) and ok
+	return ok
+
+## 按需生成 qc/review_queue.csv 与复核 SVG；不写重复窗口表。
+static func export_review_package(paths: Dictionary, protocol: ExperimentProtocol = null) -> bool:
+	var active_protocol: ExperimentProtocol = protocol if protocol != null else ExperimentProtocol.new()
+	var analyzed: Dictionary = analyze_session(paths, active_protocol)
+	if analyzed.is_empty():
+		return false
+	var qc_dir: String = str(paths.get("qc_directory", ""))
+	if qc_dir.is_empty():
+		qc_dir = str(paths.get("directory", "")).path_join("qc")
+	if qc_dir.is_empty():
+		return false
+	if DirAccess.make_dir_recursive_absolute(qc_dir) != OK and not DirAccess.dir_exists_absolute(qc_dir):
+		return false
+	return _export_review(
+		qc_dir,
+		str((analyzed["session"] as Dictionary).get("session_id", "")),
+		analyzed["perturbation_results"],
+		analyzed["frames_by_trial"],
+		active_protocol,
+		float(analyzed["force_scale"]),
+	)
+
+## 从 raw CSV 计算全部结果行，供导出与汇总复用。失败返回空字典。
+static func analyze_session(paths: Dictionary, protocol: ExperimentProtocol = null) -> Dictionary:
+	var active_protocol: ExperimentProtocol = protocol if protocol != null else ExperimentProtocol.new()
+	var session_rows: Array[Dictionary] = read_csv(str(paths.get("session", "")))
+	var frames: Array[Dictionary] = read_csv(str(paths.get("frames", "")))
+	var events: Array[Dictionary] = read_csv(str(paths.get("events", "")))
 	if session_rows.is_empty() or (frames.is_empty() and events.is_empty()):
-		return false
+		return {}
 	var session: Dictionary = session_rows[0]
 	var force_scale: float = maxf(_number(session.get("force_max", 1.0)), 0.000001)
 	var session_id: String = str(session.get("session_id", ""))
@@ -120,7 +150,6 @@ static func export_session(paths: Dictionary, protocol: ExperimentProtocol = nul
 			if str(event.get("event_type", "")) != "perturb_on":
 				continue
 			on_count += 1
-			var onset_ms: float = _number(event.get("trial_elapsed_ms", 0.0))
 			var slot: String = str(event.get("slot", ""))
 			var offset_ms: float = _last_time_ms(trial_frames, trial_events)
 			for later_index: int in range(event_index + 1, trial_events.size()):
@@ -142,33 +171,30 @@ static func export_session(paths: Dictionary, protocol: ExperimentProtocol = nul
 			perturbation["level_id"] = str(event.get("level_id", ""))
 			perturbation_results.append(perturbation)
 
-	var dyad_results: Array[Dictionary] = analyze_dyad(trial_results, session_id)
 	var gate_results: Array[Dictionary] = []
-	var turn_results: Array[Dictionary] = []
+	var segment_results: Array[Dictionary] = []
 	var choice_results: Array[Dictionary] = []
 	for trial_id: String in trial_ids:
 		var trial_frames: Array[Dictionary] = _filter_trial(frames, trial_id)
 		var trial_events: Array[Dictionary] = _filter_trial(events, trial_id)
 		gate_results.append_array(_analyze_gates(trial_frames, trial_events, session_id))
-		turn_results.append_array(_analyze_turns(trial_frames, trial_events, session_id))
+		segment_results.append_array(_analyze_segments(trial_frames, trial_events, session_id))
 		choice_results.append_array(_analyze_choices(trial_events, session_id))
-	var ok: bool = true
-	ok = _write_csv(analysis_dir.path_join("trial_summary.csv"), TRIAL_COLUMNS, trial_results) and ok
-	ok = _write_csv(
-		analysis_dir.path_join("perturbation_summary.csv"),
-		PERTURBATION_COLUMNS,
-		perturbation_results
-	) and ok
-	ok = _write_csv(analysis_dir.path_join("dyad_summary.csv"), DYAD_COLUMNS, dyad_results) and ok
-	ok = _write_csv(analysis_dir.path_join("gate_summary.csv"), GATE_SUMMARY_COLUMNS, gate_results) and ok
-	ok = _write_csv(analysis_dir.path_join("turn_summary.csv"), TURN_SUMMARY_COLUMNS, turn_results) and ok
-	ok = _write_csv(analysis_dir.path_join("choice_summary.csv"), CHOICE_SUMMARY_COLUMNS, choice_results) and ok
-	ok = _write_metadata(analysis_dir.path_join("analysis_metadata.csv"), session_id, active_protocol) and ok
-	ok = _export_review(
-		analysis_dir, session_id, perturbation_results, frames_by_trial,
-		active_protocol, force_scale
-	) and ok
-	return ok
+	return {
+		"session": session,
+		"frames": frames,
+		"events": events,
+		"trial_results": trial_results,
+		"perturbation_results": perturbation_results,
+		"gate_results": gate_results,
+		"segment_results": segment_results,
+		"choice_results": choice_results,
+		"frames_by_trial": frames_by_trial,
+		"force_scale": force_scale,
+	}
+
+static func read_csv(path: String) -> Array[Dictionary]:
+	return _read_csv(path)
 
 ## 按门聚合 attempt / fail / open 事件。
 static func _analyze_gates(
@@ -194,7 +220,6 @@ static func _analyze_gates(
 				"attempt_count": 0,
 				"fail_count": 0,
 				"opened": 0,
-				"first_success": 0,
 				"first_forward_speed": "",
 				"first_direction_cosine": "",
 				"result_reason": "",
@@ -209,16 +234,14 @@ static func _analyze_gates(
 			row["result_reason"] = str(event.get("result_reason", row["result_reason"]))
 		elif et == "gate_opened":
 			row["opened"] = 1
-			if int(row["first_success"]) == 0:
-				row["first_success"] = 1
-				row["result_reason"] = "opened"
+			row["result_reason"] = "opened"
 	var out: Array[Dictionary] = []
 	for key: Variant in by_gate.keys():
 		out.append(by_gate[key] as Dictionary)
 	return out
 
-## 按弯道/减速路段聚合进入离开与速度。
-static func _analyze_turns(
+## 按弯道/减速等实验路段聚合进入离开与速度。
+static func _analyze_segments(
 	frames: Array[Dictionary],
 	events: Array[Dictionary],
 	session_id: String,
@@ -278,6 +301,8 @@ static func _analyze_choices(
 		level_id = str(event.get("level_id", level_id))
 		trial_id = str(event.get("trial_id", trial_id))
 		var et: String = str(event.get("event_type", ""))
+		if not et.begins_with("choice_") and not et.begins_with("branch_"):
+			continue
 		var fork_id: String = str(event.get("component_id", ""))
 		if fork_id.is_empty():
 			continue
@@ -312,7 +337,7 @@ static func _analyze_choices(
 		out.append(by_fork[key] as Dictionary)
 	return out
 
-## 纯函数：输入一个 trial 的字典行，返回一行 trial_summary。
+## 纯函数：输入一个 trial 的字典行，返回一行 trial_results。
 static func analyze_trial(
 	frames: Array[Dictionary],
 	events: Array[Dictionary],
@@ -325,7 +350,7 @@ static func analyze_trial(
 		"trial_id": _first_value(frames, events, "trial_id"),
 		"level_id": _first_value(frames, events, "level_id"),
 		"level_attempt_index": _first_value(frames, events, "level_attempt_index"),
-		"experiment_condition": _first_value(frames, events, "experiment_condition"),
+		"protocol_version": _first_value(frames, events, "protocol_version"),
 	}
 	var cosines: Array[float] = []
 	var differences: Array[float] = []
@@ -406,8 +431,6 @@ static func analyze_trial(
 	result["trial_leader"] = _trial_leader(a_start, b_start, xcorr, correction_a, correction_b)
 	result["collision_count"] = _count_event(events, "collision")
 	result["death_count"] = _count_event(events, "death_collision")
-	result["restart_count"] = _count_event(events, "restart_requested")
-	result["quit_count"] = _count_event(events, "quit_mid_trial")
 	result["outcome"] = _trial_outcome(events)
 	result["trial_duration_ms"] = _last_time_ms(frames, events)
 	var run_start_ms: Variant = _event_time(events, "run_start")
@@ -509,22 +532,6 @@ static func analyze_perturbation(
 	for key: Variant in overshoot:
 		result[key] = overshoot[key]
 	return result
-
-static func analyze_dyad(trials: Array[Dictionary], session_id: String) -> Array[Dictionary]:
-	var output: Array[Dictionary] = []
-	output.append(_dyad_row(trials, session_id, "all", ""))
-	var levels: PackedStringArray = PackedStringArray()
-	for trial: Dictionary in trials:
-		var level_id: String = str(trial.get("level_id", ""))
-		if not levels.has(level_id):
-			levels.append(level_id)
-	for level_id: String in levels:
-		var selected: Array[Dictionary] = []
-		for trial: Dictionary in trials:
-			if str(trial.get("level_id", "")) == level_id:
-				selected.append(trial)
-		output.append(_dyad_row(selected, session_id, "level", level_id))
-	return output
 
 static func _cross_correlation(
 	frames: Array[Dictionary], protocol: ExperimentProtocol, force_scale: float
@@ -724,54 +731,6 @@ static func _trial_leader(
 			b_votes += 1
 	return "A" if a_votes > b_votes else ("B" if b_votes > a_votes else "ambiguous")
 
-static func _dyad_row(
-	trials: Array[Dictionary], session_id: String, scope: String, level_id: String
-) -> Dictionary:
-	var success_count: int = 0
-	var restart_count: int = 0
-	var quit_count: int = 0
-	var a_count: int = 0
-	var b_count: int = 0
-	var ambiguous_count: int = 0
-	var completion_times: Array[float] = []
-	var errors: Array[float] = []
-	var progresses: Array[float] = []
-	for trial: Dictionary in trials:
-		if str(trial.get("outcome", "")) == "success":
-			success_count += 1
-		restart_count += int(_number(trial.get("restart_count", 0)))
-		quit_count += int(_number(trial.get("quit_count", 0)))
-		var leader: String = str(trial.get("trial_leader", "ambiguous"))
-		if leader == "A":
-			a_count += 1
-		elif leader == "B":
-			b_count += 1
-		else:
-			ambiguous_count += 1
-		_append_number(completion_times, trial.get("completion_time_ms"))
-		_append_number(errors, trial.get("mean_route_error"))
-		_append_number(progresses, trial.get("max_progress"))
-	var count: int = trials.size()
-	var decisive_count: int = a_count + b_count
-	return {
-		"analysis_version": ExperimentProtocol.ANALYSIS_VERSION,
-		"session_id": session_id, "scope": scope, "level_id": level_id,
-		"trial_count": count, "success_count": success_count,
-		"success_rate": float(success_count) / count if count > 0 else null,
-		"restart_count": restart_count, "quit_count": quit_count,
-		"A_leader_count": a_count, "B_leader_count": b_count,
-		"ambiguous_count": ambiguous_count,
-		"A_leader_ratio": float(a_count) / count if count > 0 else null,
-		"B_leader_ratio": float(b_count) / count if count > 0 else null,
-		"ambiguous_ratio": float(ambiguous_count) / count if count > 0 else null,
-		"same_leader_stability": (
-			float(maxi(a_count, b_count)) / decisive_count if decisive_count > 0 else null
-		),
-		"mean_completion_time_ms": _mean(completion_times),
-		"mean_route_error": _mean(errors),
-		"mean_max_progress": _mean(progresses),
-	}
-
 static func _export_review(
 	directory: String,
 	session_id: String,
@@ -793,7 +752,6 @@ static func _export_review(
 	var sample_count: int = int(ceil(float(ranked.size()) * protocol.review_fraction))
 	var selected: Array[Dictionary] = ranked.slice(0, sample_count)
 	var queue: Array[Dictionary] = []
-	var windows: Array[Dictionary] = []
 	var svg_ok: bool = true
 	for perturbation: Dictionary in selected:
 		var perturbation_id: String = str(perturbation["perturbation_id"])
@@ -826,49 +784,15 @@ static func _export_review(
 		var projection_values: Array[float] = _review_projections(
 			trial_frames, review_frames, perturbation, protocol, force_scale
 		)
-		for i: int in review_frames.size():
-			var frame: Dictionary = review_frames[i]
-			var time_ms: float = _number(frame.get("trial_elapsed_ms", 0.0))
-			windows.append({
-				"analysis_version": ExperimentProtocol.ANALYSIS_VERSION,
-				"session_id": session_id, "perturbation_id": perturbation_id,
-				"trial_id": trial_id,
-				"relative_ms": time_ms - _number(perturbation["onset_ms"]),
-				"route_signed_error": frame.get("route_signed_error", ""),
-				"route_error_distance": frame.get("route_error_distance", ""),
-				"speed": frame.get("speed", ""),
-				"angular_velocity_rad_s": frame.get("angular_velocity_rad_s", ""),
-				"A_force_x": frame.get("A_force_x", ""), "A_force_y": frame.get("A_force_y", ""),
-				"B_force_x": frame.get("B_force_x", ""), "B_force_y": frame.get("B_force_y", ""),
-				"compensation_projection": projection_values[i],
-				"automatic_compensation_onset": (
-					1 if perturbation.get("compensation_onset_ms") != null
-					and absf(time_ms - _number(perturbation["compensation_onset_ms"])) < _frame_delta_ms(frame)
-					else 0
-				),
-				"automatic_recovery": (
-					1 if perturbation.get("recovery_time_ms") != null
-					and absf(
-						time_ms - _number(perturbation["onset_ms"])
-						- _number(perturbation["recovery_time_ms"])
-					) < _frame_delta_ms(frame)
-					else 0
-				),
-			})
 		svg_ok = _write_review_svg(
 			directory.path_join(svg_filename), perturbation_id, review_frames,
 			projection_values, perturbation
 		) and svg_ok
-	var agreement: Dictionary = _review_agreement(queue, session_id, protocol)
+	var agreement: Dictionary = review_agreement(queue, session_id, protocol)
 	return (
 		svg_ok
 		and _write_csv(queue_path, REVIEW_QUEUE_COLUMNS, queue)
-		and _write_csv(directory.path_join("review_windows.csv"), REVIEW_WINDOW_COLUMNS, windows)
-		and _write_csv(
-			directory.path_join("review_agreement.csv"),
-			REVIEW_AGREEMENT_COLUMNS,
-			[agreement]
-		)
+		and _write_json(directory.path_join("review_report.json"), agreement)
 	)
 
 static func _review_projections(
@@ -991,7 +915,7 @@ static func _svg_polyline(
 		color, " ".join(points),
 	]
 
-static func _review_agreement(
+static func review_agreement(
 	queue: Array[Dictionary], session_id: String, protocol: ExperimentProtocol
 ) -> Dictionary:
 	var reviewed: int = 0
@@ -1033,21 +957,49 @@ static func _review_agreement(
 		"recovery_difference_median_ms": _percentile(recovery_differences, 0.5),
 	}
 
-static func _write_metadata(
-	path: String, session_id: String, protocol: ExperimentProtocol
+static func _write_result_csv(
+	directory: String,
+	filename: String,
+	columns: PackedStringArray,
+	rows: Array,
+	outputs: Dictionary,
 ) -> bool:
-	var rows: Array[Dictionary] = []
-	for key: Variant in protocol.metadata():
-		rows.append({
-			"analysis_version": ExperimentProtocol.ANALYSIS_VERSION,
-			"session_id": session_id, "parameter": str(key),
-			"value": protocol.metadata()[key],
-		})
-	return _write_csv(
-		path,
-		PackedStringArray(["analysis_version", "session_id", "parameter", "value"]),
-		rows
-	)
+	var path: String = directory.path_join(filename)
+	var typed_rows: Array[Dictionary] = []
+	for item: Variant in rows:
+		if item is Dictionary:
+			typed_rows.append(item as Dictionary)
+	if typed_rows.is_empty():
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(path)
+		outputs[filename] = {"rows": 0, "status": "omitted"}
+		return true
+	outputs[filename] = {"rows": typed_rows.size(), "status": "written"}
+	return _write_csv(path, columns, typed_rows)
+
+static func _write_manifest(
+	path: String, session: Dictionary, protocol: ExperimentProtocol, outputs: Dictionary
+) -> bool:
+	var thresholds: Dictionary = {}
+	var meta: Dictionary = protocol.metadata()
+	for key: Variant in meta:
+		thresholds[str(key)] = meta[key]
+	return _write_json(path, {
+		"schema_version": str(session.get("schema_version", "")),
+		"analysis_version": ExperimentProtocol.ANALYSIS_VERSION,
+		"session_id": str(session.get("session_id", "")),
+		"generated_utc": Time.get_datetime_string_from_system(true, false),
+		"thresholds": thresholds,
+		"outputs": outputs,
+	})
+
+static func _write_json(path: String, data: Dictionary) -> bool:
+	var file: FileAccess = FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		return false
+	file.store_string(JSON.stringify(data, "\t"))
+	file.close()
+	return true
 
 static func _write_csv(
 	path: String, columns: PackedStringArray, rows: Array[Dictionary]
@@ -1225,10 +1177,6 @@ static func _last_time_ms(frames: Array[Dictionary], events: Array[Dictionary]) 
 	if not events.is_empty():
 		value = maxf(value, _number(events[-1].get("trial_elapsed_ms", 0.0)))
 	return value
-
-static func _append_number(output: Array[float], value: Variant) -> void:
-	if value != null and not str(value).is_empty():
-		output.append(_number(value))
 
 static func _mean(values: Array[float]) -> Variant:
 	if values.is_empty():

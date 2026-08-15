@@ -43,7 +43,7 @@
 
 - A/B 始终按参与者身份记录，不因 P1/P2 或左右屏交换而改变。
 - 物理帧不是独立样本；帧数据用于计算门、弯道、扰动和岔路等事件级指标。
-- Baseline 与 Perturbation 必须使用同一地图结构和相同的合格分析路段。
+- 预实验不再使用全局 Baseline/Perturbation 分组。第 3 关记录正常协调，第 4 关固定真实干扰；两关地图不同，不得包装成严格对照。
 - 关键行为必须可由原始输入、位置、速度和事件日志重算。
 - 隐藏触发可以伪随机，但必须由可保存的种子或序列编号决定，以便复现。
 
@@ -184,17 +184,17 @@
 - A/B 先后顺序按种子交替。
 - 玩家界面从开局亮「干扰」灯，不显示受扰者是谁。
 
-#### Baseline 行为
+#### 预实验行为
 
-- Baseline 在相同候选路段执行假触发，不改变输入增益。
-- 仍记录 `sham_perturbation` 事件，便于按地图位置比较。
+- 第 4 关始终施加真实干扰，不再做假触发。
+- 补偿与恢复用每次干扰前 200 ms 的局部基线计算。
+- 第 3 关作为正常协调参考，但不与第 4 关构成因果对照。
 
 #### 事件日志
 
 - `perturb_candidate_enter`
 - `perturb_on`
 - `perturb_off`
-- `sham_perturbation`
 - `perturb_skipped`
 
 ### 5.4 ChoiceForkTracker：隐藏岔路追踪器
@@ -397,9 +397,9 @@
 
 ### 条件要求
 
-- Baseline 与 Perturbation 使用相同地图。
-- Perturbation 按隐藏序列平衡 A/B 受扰顺序。
-- 第 4 关按时间循环触发（长脉冲 + 短间隔），A/B 交替；正式实验的基线条件仍做假触发。
+- 单一协议：第 4 关固定真实干扰，按隐藏序列平衡 A/B 受扰顺序。
+- 第 4 关按时间循环触发（长脉冲 + 短间隔），A/B 交替。
+- 正式实验若要恢复组间条件，须另行冻结设计，不能沿用本预实验的探索性调参。
 - 序列版本与随机种子写入 session 或 trial 数据。
 
 ### 主要派生指标
@@ -503,13 +503,14 @@
 
 ### 13.3 派生分析
 
-现有 `trial_summary.csv` 与 `perturbation_summary.csv` 保留。建议增加按组件或路段一行的派生表：
+核心结果表为 `trial_results.csv`；扰动条件另有 `perturbation_results.csv`。
+按组件或路段一行的专项表仅在有数据时生成：
 
-- `gate_summary.csv`
-- `turn_summary.csv`
-- `choice_summary.csv`
+- `gate_results.csv`
+- `segment_results.csv`
+- `choice_results.csv`
 
-刹车指标可放入 `turn_summary.csv`，通过 `segment_type` 区分回转和普通弯道，避免再增加过多文件。
+刹车指标放入 `segment_results.csv`，通过 `segment_type` 区分回转和普通弯道，避免再增加过多文件。
 
 ## 14. UI 与文案需求
 
@@ -545,8 +546,8 @@
 
 ### 15.3 扰动
 
-- Baseline 不改变增益但记录假触发。
-- Perturbation 只对指定玩家生效并按时恢复。
+- 第 4 关真实干扰只对指定玩家生效并按时恢复。
+- 分析使用干扰前局部基线，而不是另一套全局 Baseline 关卡。
 - 暂停、重生、退出和关卡结束会恢复双方增益。
 - 同一序列版本可重复得到相同受扰顺序。
 - 碰撞或重生后的不合格候选触发会延后或跳过。

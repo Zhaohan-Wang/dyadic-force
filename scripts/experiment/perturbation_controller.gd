@@ -1,6 +1,6 @@
 class_name PerturbationController
 extends RefCounted
-## 隐藏失衡控制器：在候选路段内按可复现序列触发真实/假扰动。
+## 隐藏失衡控制器：在候选路段内按可复现序列触发真实干扰。
 
 signal perturb_changed(active: bool, slot: int, gain: float)
 
@@ -187,48 +187,29 @@ func _fire_at_candidate(cand_id: String) -> void:
 	var lateral_deg: float = lateral_sign * _rng.randf_range(
 		_def.perturb_lateral_deg_min, _def.perturb_lateral_deg_max
 	)
-	# 只有正式实验的基线条件才做假扰动。日常试玩必须真扰，
-	# 否则第四关从头到尾都没有手感，计时器上的「干扰」灯也对不上。
-	var is_baseline: bool = (
-		GameState.experiment_mode
-		and GameState.experiment_condition != "perturbation"
-	)
+	# 单一协议：第 4 关始终施加真实干扰，用干扰前局部基线计算补偿与恢复。
 	_active = true
 	_active_slot = slot
 	_active_gain = gain
 	_active_lateral_deg = lateral_deg
 	_active_left = duration
-	_is_sham = is_baseline
-	if is_baseline:
-		InputHub.reset_gains()
-		ExperimentLog.log_event("sham_perturbation", {
-			"slot": slot,
-			"gain": 1.0,
-			"segment_id": cand_id,
-			"component_id": cand_id,
-			"sequence_version": _def.perturb_sequence_version,
-			"note": "duration=%.2f lateral=%.1fdeg" % [duration, lateral_deg],
-			"core_x": _ball.global_position.x,
-			"core_y": _ball.global_position.y,
-		})
-		perturb_changed.emit(false, -1, 1.0)
-	else:
-		InputHub.slot_gains[0] = gain if slot == 0 else 1.0
-		InputHub.slot_gains[1] = gain if slot == 1 else 1.0
-		var bias: float = deg_to_rad(lateral_deg)
-		InputHub.slot_force_bias_rad[0] = bias if slot == 0 else 0.0
-		InputHub.slot_force_bias_rad[1] = bias if slot == 1 else 0.0
-		ExperimentLog.log_event("perturb_on", {
-			"slot": slot,
-			"gain": gain,
-			"segment_id": cand_id,
-			"component_id": cand_id,
-			"sequence_version": _def.perturb_sequence_version,
-			"note": "segment_trigger duration=%.2f lateral=%.1fdeg" % [duration, lateral_deg],
-			"core_x": _ball.global_position.x,
-			"core_y": _ball.global_position.y,
-		})
-		perturb_changed.emit(true, slot, gain)
+	_is_sham = false
+	InputHub.slot_gains[0] = gain if slot == 0 else 1.0
+	InputHub.slot_gains[1] = gain if slot == 1 else 1.0
+	var bias: float = deg_to_rad(lateral_deg)
+	InputHub.slot_force_bias_rad[0] = bias if slot == 0 else 0.0
+	InputHub.slot_force_bias_rad[1] = bias if slot == 1 else 0.0
+	ExperimentLog.log_event("perturb_on", {
+		"slot": slot,
+		"gain": gain,
+		"segment_id": cand_id,
+		"component_id": cand_id,
+		"sequence_version": _def.perturb_sequence_version,
+		"note": "segment_trigger duration=%.2f lateral=%.1fdeg" % [duration, lateral_deg],
+		"core_x": _ball.global_position.x,
+		"core_y": _ball.global_position.y,
+	})
+	perturb_changed.emit(true, slot, gain)
 
 func get_sequence_version() -> String:
 	return _def.perturb_sequence_version if _def != null else ""

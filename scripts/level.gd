@@ -29,7 +29,7 @@ var _failed_trails: Array[PackedVector2Array] = []
 var _hit_points: PackedVector2Array = PackedVector2Array()
 ## 真实扰动生效期间走过的路径（结算图上高亮成"偏移区间"）
 var _perturb_spans: Array[PackedVector2Array] = []
-## 当前是否处于真实扰动中（假扰动不计）
+## 当前是否处于真实扰动中
 var _perturb_active: bool = false
 ## 本局真实扰动累计时长（秒）
 var _perturb_seconds: float = 0.0
@@ -102,7 +102,7 @@ func _ready() -> void:
 	_state.ensure_tutorial_started()
 	_state.phase_changed.connect(_on_phase_changed)
 	# 开局即建立不可覆盖 trial（含 READY 阶段输入）。
-	if not ExperimentLog.begin_trial(_def, str(GameState.get("experiment_condition"))):
+	if not ExperimentLog.begin_trial(_def):
 		push_error("Level: 实验日志初始化失败")
 		_trial_closed = true
 		InputHub.input_frozen = true
@@ -287,7 +287,7 @@ func _setup_challenge_components() -> void:
 	_perturb.setup(_def, _ball, _segment_zones)
 	_choice_tracker.setup(_def.choice_forks, _ball)
 
-## 扰动开关：开始时新开一段轨迹，结束时收尾。假扰动（baseline）永远收到 active=false。
+## 扰动开关：开始时新开一段轨迹，结束时收尾。
 func _on_perturb_changed(active: bool, _slot: int, _gain: float) -> void:
 	if active == _perturb_active:
 		return

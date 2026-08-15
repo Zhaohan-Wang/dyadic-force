@@ -4,14 +4,14 @@ extends SceneTree
 const SESSION_TEST_COLUMNS: PackedStringArray = ["session_id", "force_max"]
 const FRAME_TEST_COLUMNS: PackedStringArray = [
 	"session_id", "trial_id", "life_id", "level_id", "level_attempt_index",
-	"experiment_condition", "trial_elapsed_ms", "physics_delta_s", "A_slot", "B_slot",
+	"protocol_version", "trial_elapsed_ms", "physics_delta_s", "A_slot", "B_slot",
 	"A_force_x", "A_force_y", "B_force_x", "B_force_y", "core_x", "core_y",
 	"route_error_x", "route_error_y", "route_signed_error", "route_error_distance",
 	"route_max_progress", "inside_boundary", "speed", "angular_velocity_rad_s",
 ]
 const EVENT_TEST_COLUMNS: PackedStringArray = [
 	"session_id", "trial_id", "life_id", "level_id", "level_attempt_index",
-	"experiment_condition", "trial_elapsed_ms", "event_type", "slot", "gain", "outcome",
+	"protocol_version", "trial_elapsed_ms", "event_type", "slot", "gain", "outcome",
 ]
 
 var _failures: PackedStringArray = PackedStringArray()
@@ -26,7 +26,7 @@ func _run() -> void:
 	_test_trial_metrics(protocol)
 	_test_perturbation_metrics(protocol)
 	_test_censoring(protocol)
-	_test_review_export(protocol)
+	_test_review_package(protocol)
 	if _failures.is_empty():
 		print("BEHAVIOR_METRICS_ASSERT_OK")
 		quit(0)
@@ -125,15 +125,12 @@ func _test_censoring(protocol: ExperimentProtocol) -> void:
 	_expect(result["compensation_status"] == "censored", "compensation censoring")
 	_expect(int(result["recovery_censored"]) == 1, "recovery censoring")
 
-func _test_review_export(protocol: ExperimentProtocol) -> void:
+func _test_review_package(protocol: ExperimentProtocol) -> void:
 	var root: String = "user://behavior_metrics_assert"
 	var user_dir: DirAccess = DirAccess.open("user://")
 	if DirAccess.dir_exists_absolute(root):
-		user_dir.remove_absolute(root.path_join("session.csv"))
-		user_dir.remove_absolute(root.path_join("frames.csv"))
-		user_dir.remove_absolute(root.path_join("events.csv"))
-	else:
-		user_dir.make_dir("behavior_metrics_assert")
+		_remove_tree(root)
+	user_dir.make_dir("behavior_metrics_assert")
 	_write_rows(
 		root.path_join("session.csv"),
 		SESSION_TEST_COLUMNS,
@@ -174,16 +171,29 @@ func _test_review_export(protocol: ExperimentProtocol) -> void:
 		"session": root.path_join("session.csv"),
 		"frames": root.path_join("frames.csv"),
 		"events": root.path_join("events.csv"),
+		"results_directory": root.path_join("results"),
+		"qc_directory": root.path_join("qc"),
 	}
-	_expect(ExperimentAnalyzer.export_session(paths, protocol), "first review export")
-	var first_ids: PackedStringArray = _review_ids(root.path_join("review_queue.csv"))
+	_expect(ExperimentAnalyzer.export_session(paths, protocol), "default result export")
+	_expect(
+		not FileAccess.file_exists(root.path_join("qc").path_join("review_queue.csv")),
+		"review queue should not be written by default export",
+	)
+	_expect(FileAccess.file_exists(root.path_join("results").path_join("trial_results.csv")), "trial_results missing")
+	_expect(FileAccess.file_exists(root.path_join("results").path_join("perturbation_results.csv")), "perturbation_results missing")
+	_expect(ExperimentAnalyzer.export_review_package(paths, protocol), "first review package")
+	var first_ids: PackedStringArray = _review_ids(root.path_join("qc").path_join("review_queue.csv"))
 	_expect(first_ids.size() >= 2, "at least 20 percent review sample")
-	_expect(ExperimentAnalyzer.export_session(paths, protocol), "second review export")
-	var second_ids: PackedStringArray = _review_ids(root.path_join("review_queue.csv"))
+	_expect(ExperimentAnalyzer.export_review_package(paths, protocol), "second review package")
+	var second_ids: PackedStringArray = _review_ids(root.path_join("qc").path_join("review_queue.csv"))
 	_expect(first_ids == second_ids, "fixed-seed review sample")
+	_expect(
+		not FileAccess.file_exists(root.path_join("qc").path_join("review_windows.csv")),
+		"review_windows.csv should not be generated",
+	)
 	for perturbation_id: String in first_ids:
 		_expect(
-			FileAccess.file_exists(root.path_join("review_%s.svg" % perturbation_id)),
+			FileAccess.file_exists(root.path_join("qc").path_join("review_%s.svg" % perturbation_id)),
 			"review SVG missing",
 		)
 
@@ -199,7 +209,7 @@ func _frame(
 	return {
 		"schema_version": "2.0.0", "session_id": "S", "trial_id": "S-T0001",
 		"life_id": "S-T0001-L001", "level_id": "synthetic",
-		"level_attempt_index": 1, "experiment_condition": "perturbation",
+		"level_attempt_index": 1, "protocol_version": "pilot-1.0",
 		"trial_elapsed_ms": time_ms, "physics_delta_s": 0.02,
 		"A_slot": 0, "B_slot": 1,
 		"A_force_x": a_x, "A_force_y": a_y,
@@ -217,7 +227,7 @@ func _event(time_ms: float, event_type: String, outcome: String = "") -> Diction
 	return {
 		"schema_version": "2.0.0", "session_id": "S", "trial_id": "S-T0001",
 		"life_id": "S-T0001-L001", "level_id": "synthetic",
-		"level_attempt_index": 1, "experiment_condition": "perturbation",
+		"level_attempt_index": 1, "protocol_version": "pilot-1.0",
 		"trial_elapsed_ms": time_ms, "event_type": event_type, "outcome": outcome,
 	}
 
@@ -264,3 +274,15 @@ func _expect_close(value: Variant, expected: float, tolerance: float, label: Str
 func _expect(condition: bool, message: String) -> void:
 	if not condition:
 		_failures.append(message)
+
+func _remove_tree(path: String) -> void:
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(path)
+		return
+	if not DirAccess.dir_exists_absolute(path):
+		return
+	for filename: String in DirAccess.get_files_at(path):
+		DirAccess.remove_absolute(path.path_join(filename))
+	for child: String in DirAccess.get_directories_at(path):
+		_remove_tree(path.path_join(child))
+	DirAccess.remove_absolute(path)

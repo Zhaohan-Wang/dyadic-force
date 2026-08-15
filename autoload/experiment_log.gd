@@ -1,12 +1,12 @@
 extends Node
 ## 唯一实验会话日志。每次应用运行只创建一个 session 目录，所有 trial/life 追加写入。
-## 导出游戏可写目录：user://experiments/dyad-<组号>/<UTC时间>/raw|analysis/
+## 导出游戏可写目录：user://experiments/dyad-<组号>/<UTC时间>/raw|results|qc/
 
 const ROOT_DIR: String = "user://experiments"
-const LEGACY_ROOT_DIR: String = "user://experiment_logs"
 const RAW_FOLDER: String = "raw"
-const ANALYSIS_FOLDER: String = "analysis"
-const SCHEMA_VERSION: String = "2.1.0"
+const RESULTS_FOLDER: String = "results"
+const QC_FOLDER: String = "qc"
+const SCHEMA_VERSION: String = "3.1.0"
 const FLUSH_INTERVAL_S: float = 1.0
 const FULL_PUSH_THRESHOLD: float = 0.90
 const FINE_MIN: float = 0.20
@@ -14,19 +14,19 @@ const FINE_MAX: float = 0.75
 
 const SESSION_COLUMNS: PackedStringArray = [
 	"schema_version", "app_version", "session_id", "dyad_id", "participant_A",
-	"participant_B", "relation_condition", "experiment_condition", "side_assignment",
+	"participant_B", "relation_condition", "protocol_version", "side_assignment",
 	"started_utc", "platform", "deadzone", "curve_gamma", "force_max",
 	"physics_ticks_per_second", "missing_identity_fields",
 ]
 const CLOCK_COLUMNS: PackedStringArray = [
 	"schema_version", "session_id", "monotonic_time_us", "session_elapsed_ms",
 	"trial_elapsed_ms", "physics_frame", "trial_id", "life_id", "level_id",
-	"level_attempt_index", "experiment_condition",
+	"level_attempt_index", "protocol_version",
 ]
 const FRAME_COLUMNS: PackedStringArray = [
 	"schema_version", "session_id", "monotonic_time_us", "session_elapsed_ms",
 	"trial_elapsed_ms", "physics_frame", "trial_id", "life_id", "level_id",
-	"level_attempt_index", "experiment_condition",
+	"level_attempt_index", "protocol_version",
 	"physics_delta_s", "render_fps", "phase", "system_quality",
 	"A_slot", "A_source", "A_device_id", "A_connected",
 	"A_raw_x", "A_raw_y", "A_calibrated_x", "A_calibrated_y",
@@ -47,7 +47,7 @@ const FRAME_COLUMNS: PackedStringArray = [
 const EVENT_COLUMNS: PackedStringArray = [
 	"schema_version", "session_id", "monotonic_time_us", "session_elapsed_ms",
 	"trial_elapsed_ms", "physics_frame", "trial_id", "life_id", "level_id",
-	"level_attempt_index", "experiment_condition",
+	"level_attempt_index", "protocol_version",
 	"event_type", "phase", "slot", "device_id", "gain", "impact_strength",
 	"damage", "remaining_hp", "time_penalty_s", "core_x", "core_y",
 	"outcome", "note",
@@ -66,7 +66,7 @@ var _life_serial: int = 0
 var _trial_id: String = ""
 var _life_id: String = ""
 var _level_id: String = ""
-var _condition: String = ""
+var _protocol_version: String = ""
 var _level_attempt_index: int = 0
 var _attempts_by_level: Dictionary = {}
 var _known_device_slots: Dictionary = {}
@@ -99,7 +99,6 @@ var active_input_count: int = 0
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_recover_interrupted_sessions(ROOT_DIR)
-	_recover_interrupted_sessions(LEGACY_ROOT_DIR)
 	if not InputHub.joy_hotplug.is_connected(_on_joy_hotplug):
 		InputHub.joy_hotplug.connect(_on_joy_hotplug)
 
@@ -113,7 +112,7 @@ func _process(delta: float) -> void:
 
 ## 每次进入/重开关卡建立不可覆盖的 trial；session 在首次调用时惰性创建。
 ## 非实验模式下不落盘，仍返回 true，避免关卡被日志失败卡住。
-func begin_trial(level_def: LevelDef, condition: String = "") -> bool:
+func begin_trial(level_def: LevelDef, _unused_condition: String = "") -> bool:
 	if level_def == null:
 		push_error("ExperimentLog: begin_trial requires LevelDef")
 		return false
@@ -129,9 +128,7 @@ func begin_trial(level_def: LevelDef, condition: String = "") -> bool:
 		_trial_id = ""
 		_life_id = ""
 		_level_id = level_def.level_id
-		_condition = condition if not condition.is_empty() else str(
-			_identity_value("experiment_condition", "unspecified")
-		)
+		_protocol_version = _active_protocol_version()
 		return true
 	if _trial_active:
 		end_trial("aborted", "implicit_trial_replacement")
@@ -140,9 +137,7 @@ func begin_trial(level_def: LevelDef, condition: String = "") -> bool:
 	_trial_serial += 1
 	_life_serial = 1
 	_level_id = level_def.level_id
-	_condition = condition if not condition.is_empty() else str(
-		_identity_value("experiment_condition", "unspecified")
-	)
+	_protocol_version = _active_protocol_version()
 	_level_attempt_index = int(_attempts_by_level.get(_level_id, 0)) + 1
 	_attempts_by_level[_level_id] = _level_attempt_index
 	_trial_id = "%s-T%04d" % [_session_id, _trial_serial]
@@ -342,9 +337,10 @@ func summary_dict() -> Dictionary:
 		"session_id": _session_id,
 		"trial_id": _trial_id,
 		"life_id": _life_id,
-		"experiment_condition": _condition,
+		"protocol_version": _protocol_version,
 		"data_directory": _session_dir,
-		"analysis_directory": str(_paths.get("analysis_directory", _session_dir)),
+		"results_directory": str(_paths.get("results_directory", "")),
+		"qc_directory": str(_paths.get("qc_directory", "")),
 		"data_export_ok": _last_export_ok,
 		"data_export_message": _last_export_message,
 		"data_export_finished_us": _last_export_finished_us,
@@ -359,39 +355,32 @@ func ensure_root() -> String:
 	_ensure_directory(ROOT_DIR)
 	return ROOT_DIR
 
-## 新建会话使用分层目录；读取旧会话时兼容扁平 experiment_logs。
+## 规范路径：组号 / 开局时间 / raw、results 与按需 qc。
 static func resolve_session_paths(session_dir: String) -> Dictionary:
-	var nested_raw: String = session_dir.path_join(RAW_FOLDER)
-	if FileAccess.file_exists(nested_raw.path_join("session.csv")):
-		return make_nested_paths(session_dir)
-	return _pack_paths(session_dir, session_dir, session_dir)
+	return make_nested_paths(session_dir)
 
-## 规范路径：组号 / 开局时间 / raw 与 analysis。
 static func make_nested_paths(session_dir: String) -> Dictionary:
-	return _pack_paths(
-		session_dir,
-		session_dir.path_join(RAW_FOLDER),
-		session_dir.path_join(ANALYSIS_FOLDER),
-	)
-
-static func _pack_paths(session_dir: String, raw_dir: String, analysis_dir: String) -> Dictionary:
+	var raw_dir: String = session_dir.path_join(RAW_FOLDER)
+	var results_dir: String = session_dir.path_join(RESULTS_FOLDER)
+	var qc_dir: String = session_dir.path_join(QC_FOLDER)
 	return {
 		"directory": session_dir,
 		"raw_directory": raw_dir,
-		"analysis_directory": analysis_dir,
+		"results_directory": results_dir,
+		"qc_directory": qc_dir,
 		"session": raw_dir.path_join("session.csv"),
 		"frames": raw_dir.path_join("frames.csv"),
 		"events": raw_dir.path_join("events.csv"),
-		"analysis_metadata": analysis_dir.path_join("analysis_metadata.csv"),
-		"trial_summary": analysis_dir.path_join("trial_summary.csv"),
-		"perturbation_summary": analysis_dir.path_join("perturbation_summary.csv"),
-		"dyad_summary": analysis_dir.path_join("dyad_summary.csv"),
-		"review_queue": analysis_dir.path_join("review_queue.csv"),
-		"review_windows": analysis_dir.path_join("review_windows.csv"),
-		"review_agreement": analysis_dir.path_join("review_agreement.csv"),
+		"analysis_manifest": results_dir.path_join("analysis_manifest.json"),
+		"trial_results": results_dir.path_join("trial_results.csv"),
+		"perturbation_results": results_dir.path_join("perturbation_results.csv"),
+		"gate_results": results_dir.path_join("gate_results.csv"),
+		"segment_results": results_dir.path_join("segment_results.csv"),
+		"choice_results": results_dir.path_join("choice_results.csv"),
+		"review_queue": qc_dir.path_join("review_queue.csv"),
 	}
 
-func schema_columns() -> Dictionary:
+static func schema_columns() -> Dictionary:
 	return {
 		"schema_version": SCHEMA_VERSION,
 		"session": SESSION_COLUMNS.duplicate(),
@@ -444,7 +433,7 @@ func _ensure_session() -> bool:
 	var missing: PackedStringArray = PackedStringArray()
 	for field: String in [
 		"dyad_id", "participant_A", "participant_B", "relation_condition",
-		"experiment_condition", "side_assignment",
+		"protocol_version", "side_assignment",
 	]:
 		if not _has_property(GameState, field):
 			missing.append(field)
@@ -459,7 +448,7 @@ func _ensure_session() -> bool:
 		_identity_value("participant_A", ""),
 		_identity_value("participant_B", ""),
 		_identity_value("relation_condition", ""),
-		_identity_value("experiment_condition", ""),
+		_identity_value("protocol_version", GameState.PROTOCOL_VERSION),
 		_identity_value("side_assignment", ""),
 		Time.get_datetime_string_from_system(true, false),
 		OS.get_name(),
@@ -493,11 +482,6 @@ func _allocate_session_directory() -> bool:
 		_session_id = "%s_%s" % [dyad, folder]
 		_paths = make_nested_paths(_session_dir)
 		if not _ensure_directory(str(_paths["raw_directory"])):
-			_session_id = ""
-			_session_dir = ""
-			_paths = {}
-			return false
-		if not _ensure_directory(str(_paths["analysis_directory"])):
 			_session_id = ""
 			_session_dir = ""
 			_paths = {}
@@ -591,27 +575,31 @@ func _recover_interrupted_sessions(root_path: String = ROOT_DIR) -> void:
 				% session_directory
 			)
 
-## 收集一层或两层下的 session 目录，兼容新分层路径和旧扁平路径。
-func _session_directories_under(root_path: String) -> PackedStringArray:
+## 收集一层或两层下的 session 目录：experiments/dyad-*/<UTC>/。
+static func session_directories_under(root_path: String) -> PackedStringArray:
 	var result: PackedStringArray = PackedStringArray()
 	if not DirAccess.dir_exists_absolute(root_path):
 		return result
 	for child: String in DirAccess.get_directories_at(root_path):
+		if child.begins_with("_"):
+			continue
 		var child_path: String = root_path.path_join(child)
 		if _looks_like_session_dir(child_path):
 			result.append(child_path)
 			continue
 		for grandchild: String in DirAccess.get_directories_at(child_path):
+			if grandchild.begins_with("_"):
+				continue
 			var session_path: String = child_path.path_join(grandchild)
 			if _looks_like_session_dir(session_path):
 				result.append(session_path)
 	return result
 
-func _looks_like_session_dir(path: String) -> bool:
-	return (
-		FileAccess.file_exists(path.path_join("events.csv"))
-		or FileAccess.file_exists(path.path_join(RAW_FOLDER).path_join("events.csv"))
-	)
+func _session_directories_under(root_path: String) -> PackedStringArray:
+	return session_directories_under(root_path)
+
+static func _looks_like_session_dir(path: String) -> bool:
+	return FileAccess.file_exists(path.path_join(RAW_FOLDER).path_join("events.csv"))
 
 func _clock_us() -> int:
 	var now: int = Time.get_ticks_usec()
@@ -633,7 +621,7 @@ func _clock_values(clock: Dictionary) -> Array[Variant]:
 	return [
 		SCHEMA_VERSION, _session_id, clock["now"], clock["session_ms"],
 		clock["trial_ms"], clock["physics_frame"], _trial_id, _life_id,
-		_level_id, _level_attempt_index, _condition,
+		_level_id, _level_attempt_index, _protocol_version,
 	]
 
 func _slot_snapshot(slot: int) -> Dictionary:
@@ -680,6 +668,10 @@ func _participant_slot(participant: String) -> int:
 				return 1
 		return 0
 	return 1 - _participant_slot("A")
+
+func _active_protocol_version() -> String:
+	var value: String = str(_identity_value("protocol_version", GameState.PROTOCOL_VERSION))
+	return value if not value.is_empty() else GameState.PROTOCOL_VERSION
 
 func _identity_value(field: String, fallback: Variant) -> Variant:
 	return GameState.get(field) if _has_property(GameState, field) else fallback

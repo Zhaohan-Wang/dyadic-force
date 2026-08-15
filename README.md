@@ -17,17 +17,25 @@
 
 - **练习关**：教程提示、无限时
 - **正式关**：限时、生命值、终点判定、星级结算
+- **预实验编号**：研究员只填组号数字；系统生成 `D001` / `D001-A` / `D001-B`。A/B 是稳定身份，左右屏由组号奇偶分配，可覆盖。
+- **单一协议**：无全局 Baseline/Perturbation 分组。第 3 关记录正常协调，第 4 关固定真实干扰，用干扰前局部基线算补偿与恢复。两关不能包装成严格对照。正式实验需另行冻结设计。
 
 开启实验模式后，数据写入游戏可写目录：
 
-`user://experiments/dyad-<组号>/<UTC时间>/raw|analysis/`
+`user://experiments/dyad-D001/<UTC时间>/raw|results/`
+
+- `raw/`：过程记录（`session.csv` / `frames.csv` / `events.csv`），不可覆盖
+- `results/`：有数据才写出的结果表；默认不生成人工复核文件
+- 全部实验结束后用 `tools/aggregate_experiments.gd` 汇总到 `_aggregate/`
 
 标题页「打开数据文件夹」可直接进入该根目录。
 
 ## 文档
 
 - [五关扩展需求](docs/five_level_expansion_requirements.md)：五个正式关的设计约束、组件、日志与验收标准。
-- [实验数据字典](docs/experiment_data_dictionary.md)：原始 CSV（schema `2.1.0`）、派生分析与保存路径。
+- [预实验 SOP](docs/pilot_experiment_protocol.md)：单次可行性预实验、现场怎么用、`D001` 编号、质量门槛。
+- [现场记录表](docs/pilot_field_log.md)：每组一张，同意映射与访谈写在游戏外。
+- [实验数据字典](docs/experiment_data_dictionary.md)：过程表（schema `3.1.0`）、按需结果表、复核与跨组汇总。
 
 ### 正式关主题（一关一挑战）
 
@@ -36,7 +44,7 @@
 | 1 GATE RUN | 共同起步 | 三扇可撞门（免伤），门间缓弯需重新加速 |
 | 2 SWITCHBACK | 共同减速 | 长直道 + 两次回转 |
 | 3 WOODLAND | 弯道协调 | 林间左右弯配对 + 2 扇门（复用第 1 关规则） |
-| 4 UNSTEADY TRAIL | 失衡补偿 | 隐藏路段扰动 / Baseline 假触发 |
+| 4 UNSTEADY TRAIL | 失衡补偿 | 隐藏路段真实干扰；用干扰前 200 ms 局部基线 |
 | 5 FORKED TRAILS | 路线选择 | 双岔路短窄 vs 长宽，汇合段 1 扇门 |
 
 第 3/4/5 关的路线由样条曲线生成（无直角拐），宽度随难度变化，按林地 / 岩地 / 草甸 / 深林分区换植被与地面质感。

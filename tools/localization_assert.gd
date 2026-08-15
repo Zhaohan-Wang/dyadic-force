@@ -130,7 +130,7 @@ func _prepare_result(game_state: Node) -> void:
 		"avg_force": 2.5,
 		"full_push_ratio": 0.2,
 		"fine_control_ratio": 0.5,
-		"experiment_condition": "baseline",
+		"protocol_version": "pilot-1.0",
 	})
 
 func _collect_text(node: Node) -> String:

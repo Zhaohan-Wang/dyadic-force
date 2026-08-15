@@ -1,7 +1,7 @@
 extends Control
 ## 选关界面：练习关 + 正式关。
 ## 每关一张大按钮卡：左侧关名，右侧限时信息与通关星标。
-## 实验条件由录入页锁定；本页只读展示。
+## 实验协议由录入页锁定；本页只读展示组号与协议版本。
 
 var _condition_value: Control
 
@@ -23,7 +23,7 @@ func _build() -> void:
 
 	var list_top: float = 140.0
 	if GameState.experiment_mode:
-		# 实验条件在配对前锁定，本页不提供临时切换入口。
+		# 标准协议在配对前锁定，本页不提供条件切换入口。
 		var cond_row: HBoxContainer = HBoxContainer.new()
 		cond_row.set_anchors_preset(Control.PRESET_CENTER_TOP)
 		cond_row.position = Vector2(-420, 118)
@@ -32,10 +32,10 @@ func _build() -> void:
 		cond_row.alignment = BoxContainer.ALIGNMENT_CENTER
 		add_child(cond_row)
 		var cond_label: Control = MenuKit.make_world_caption(
-			GameState.ui("实验条件（已锁定）", "CONDITION (LOCKED)"), 24
+			GameState.ui("实验协议（已锁定）", "PROTOCOL (LOCKED)"), 24
 		)
 		cond_row.add_child(cond_label)
-		_condition_value = MenuKit.make_world_caption(_condition_text(), 28)
+		_condition_value = MenuKit.make_world_caption(_protocol_text(), 28)
 		MenuKit.set_pixel_outline_color(_condition_value, MenuKit.COL_ACCENT)
 		cond_row.add_child(_condition_value)
 		list_top = 180.0
@@ -84,10 +84,9 @@ func _build() -> void:
 	back_row.position = Vector2(40, 36)
 	add_child(back_row)
 
-func _condition_text() -> String:
-	if GameState.experiment_condition == "perturbation":
-		return GameState.ui("扰动", "PERTURBATION")
-	return GameState.ui("基线", "BASELINE")
+func _protocol_text() -> String:
+	var dyad: String = GameState.dyad_id if not GameState.dyad_id.is_empty() else "—"
+	return "%s · %s" % [GameState.protocol_version, dyad]
 
 ## 关卡卡片按钮：名称 + 限时/无计时 + 通关星
 func _make_level_button(def: LevelDef) -> Button:

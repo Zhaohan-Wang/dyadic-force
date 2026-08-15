@@ -102,7 +102,7 @@ func _test_perturbation_controller() -> void:
 	input_hub.set("input_frozen", false)
 	input_hub.call("reset_gains")
 	game_state.set("experiment_mode", true)
-	game_state.set("experiment_condition", "baseline")
+	game_state.set("protocol_version", "pilot-1.0")
 	game_state.set("current_level", load("res://levels/level_4.tres"))
 
 	var level: Node = (load("res://scenes/level.tscn") as PackedScene).instantiate()
@@ -120,7 +120,6 @@ func _test_perturbation_controller() -> void:
 		return
 	_expect(str(perturb.call("get_sequence_version")) == "v1", "sequence version")
 
-	# Baseline：假触发不改增益
 	var ball: Node2D = level.get("_ball") as Node2D
 	# 第 4 关起步大道上的合法位置（曲线布局出生点 (350,360)）
 	ball.global_position = Vector2(500, 356)
@@ -130,16 +129,9 @@ func _test_perturbation_controller() -> void:
 	gains[1] = 1.0
 	var state: Object = level.get("_state")
 	state.set("phase", LevelState.Phase.RUNNING)
-	# 直接调用内部触发路径较难，改为 update 多帧并把球放在候选区
-	for _i: int in 30:
-		perturb.call("update", 0.1, true)
-	gains = input_hub.get("slot_gains") as Array
-	_expect(is_equal_approx(float(gains[0]), 1.0) and is_equal_approx(float(gains[1]), 1.0),
-		"baseline sham must not change gains")
 
 	# 连续模式：人不在候选框里，update 也必须立刻打出下一次
 	game_state.set("experiment_mode", false)
-	game_state.set("experiment_condition", "baseline")
 	perturb.call("clear_active", "test_reset")
 	var zone_script_pre: GDScript = load("res://scripts/route_segment_zone.gd")
 	var zones_pre: Array = Array(level.get("_segment_zones") as Array, TYPE_OBJECT, "Area2D", zone_script_pre)
@@ -152,9 +144,8 @@ func _test_perturbation_controller() -> void:
 	var min_g_start: float = minf(float(gains[0]), float(gains[1]))
 	_expect(min_g_start < 0.9, "continuous mode must start without a candidate zone, got %s" % [gains])
 
-	# Perturbation 条件：可改增益
+	# 单一协议：第 4 关始终可改增益
 	game_state.set("experiment_mode", true)
-	game_state.set("experiment_condition", "perturbation")
 	perturb.call("clear_active", "test_reset")
 	# 重建以清空 visited（setup 再次）。
 	# RouteSegmentZone 间接依赖 autoload，不能在解析期出现，只能在运行期拼类型化数组。

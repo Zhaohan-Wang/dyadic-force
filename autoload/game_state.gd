@@ -13,10 +13,10 @@ var last_result: Dictionary = {}
 var dyad_id: String = ""
 var participant_A: String = ""
 var participant_B: String = ""
-## 关系条件：unspecified / strangers / friends / partners。
+## 关系条件：unspecified / strangers / friends / partners。正式锁定不得为 unspecified。
 var relation_condition: String = "unspecified"
-## 实验条件：baseline = 关闭输入缩减；perturbation = 启用。
-var experiment_condition: String = "baseline"
+## 单一标准协议版本；不再使用全局 Baseline/Perturbation 分组。
+var protocol_version: String = "pilot-1.0"
 ## A 对应的设备槽位；0=P1/左屏，1=P2/右屏。B 自动使用另一个槽位。
 var participant_a_slot: int = 0
 ## CSV/日志侧读取的稳定分配编码。
@@ -47,15 +47,18 @@ const PROGRESS_PATH: String = "user://progress.cfg"
 const LANGUAGE_ZH: String = "zh"
 const LANGUAGE_EN: String = "en"
 const ID_MAX_LENGTH: int = 16
+const PROTOCOL_VERSION: String = "pilot-1.0"
+const ID_ALLOWED: String = "0123456789DAB-"
 const RELATION_CONDITIONS: PackedStringArray = [
 	"unspecified",
 	"strangers",
 	"friends",
 	"partners",
 ]
-const EXPERIMENT_CONDITIONS: PackedStringArray = [
-	"baseline",
-	"perturbation",
+const LOCKABLE_RELATIONS: PackedStringArray = [
+	"strangers",
+	"friends",
+	"partners",
 ]
 
 ## 关卡资源继续保存稳定的英文实验文本，界面显示时按当前语言映射。
@@ -123,17 +126,48 @@ func pairing_back_scene() -> String:
 		return "res://scenes/experiment_setup_screen.tscn"
 	return "res://scenes/title_screen.tscn"
 
-## 实验组号与参与者编号只保留数字，避免姓名、缩写和自由文本混入数据。
+## 只保留去标识编号允许的字符：数字、D/A/B 与连字符。
 func sanitize_experiment_id(raw_value: String) -> String:
 	var result: String = ""
 	for index: int in raw_value.length():
-		var character: String = raw_value.substr(index, 1)
-		var codepoint: int = character.unicode_at(0)
-		if codepoint >= 48 and codepoint <= 57:
+		var character: String = raw_value.substr(index, 1).to_upper()
+		if ID_ALLOWED.contains(character):
 			result += character
 		if result.length() >= ID_MAX_LENGTH:
 			break
+	while result.begins_with("-"):
+		result = result.substr(1)
+	while result.ends_with("-"):
+		result = result.substr(0, result.length() - 1)
 	return result
+
+## 组号规范为 D + 至少三位数字，例如 1 / 01 / D001 → D001。
+func normalize_dyad_id(raw_value: String) -> String:
+	var digits: String = _digits_only(raw_value)
+	if digits.is_empty():
+		return ""
+	var number: int = digits.to_int()
+	if number <= 0:
+		return ""
+	return "D%03d" % number
+
+## 由组号派生稳定参与者编号：D001-A / D001-B。
+func default_participant_id(raw_dyad: String, letter: String) -> String:
+	var dyad: String = normalize_dyad_id(raw_dyad)
+	var tag: String = letter.to_upper()
+	if dyad.is_empty() or tag not in ["A", "B"]:
+		return ""
+	return "%s-%s" % [dyad, tag]
+
+## 奇数 A=P1，偶数 A=P2。无法解析时默认 A=P1。
+func default_a_slot_for_dyad(raw_dyad: String) -> int:
+	var digits: String = _digits_only(raw_dyad)
+	if digits.is_empty():
+		return 0
+	return 0 if digits.to_int() % 2 == 1 else 1
+
+func is_default_participant_id(raw_dyad: String, raw_participant: String, letter: String) -> bool:
+	return sanitize_experiment_id(raw_participant) == default_participant_id(raw_dyad, letter)
 
 ## 校验并锁定实验信息；成功后本次运行中只能由 Setup 页重新录入。
 func lock_experiment_setup(
@@ -141,29 +175,38 @@ func lock_experiment_setup(
 	next_participant_a: String,
 	next_participant_b: String,
 	next_relation: String,
-	next_condition: String,
 	next_a_slot: int,
 ) -> bool:
-	var clean_dyad: String = sanitize_experiment_id(next_dyad_id)
+	var clean_dyad: String = normalize_dyad_id(next_dyad_id)
 	var clean_a: String = sanitize_experiment_id(next_participant_a)
 	var clean_b: String = sanitize_experiment_id(next_participant_b)
+	if clean_a.is_empty():
+		clean_a = default_participant_id(clean_dyad, "A")
+	if clean_b.is_empty():
+		clean_b = default_participant_id(clean_dyad, "B")
 	if clean_dyad.is_empty() or clean_a.is_empty() or clean_b.is_empty():
 		return false
 	if clean_a == clean_b:
 		return false
-	if not RELATION_CONDITIONS.has(next_relation):
-		return false
-	if not EXPERIMENT_CONDITIONS.has(next_condition):
+	if not LOCKABLE_RELATIONS.has(next_relation):
 		return false
 	dyad_id = clean_dyad
 	participant_A = clean_a
 	participant_B = clean_b
 	relation_condition = next_relation
-	experiment_condition = next_condition
+	protocol_version = PROTOCOL_VERSION
 	participant_a_slot = clampi(next_a_slot, 0, 1)
 	side_assignment = "A=P1;B=P2" if participant_a_slot == 0 else "A=P2;B=P1"
 	experiment_setup_locked = true
 	return true
+
+func _digits_only(raw_value: String) -> String:
+	var digits: String = ""
+	for index: int in raw_value.length():
+		var character: String = raw_value.substr(index, 1)
+		if character >= "0" and character <= "9":
+			digits += character
+	return digits
 
 ## 返回设备槽位对应的参与者标签（A/B）。
 func participant_letter_for_slot(slot: int) -> String:

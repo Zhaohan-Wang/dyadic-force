@@ -1,6 +1,6 @@
 extends Control
-## 配对前录入去标识化实验信息，并锁定条件与 A/B 左右分配。
-## 三个编号栏固定不动，共用一个始终可见的数字键盘。
+## 配对前录入去标识化实验信息。默认只填组号，自动生成 D001-A / D001-B。
+## 三个编号栏固定不动，共用一个始终可见的数字/字母键盘。
 
 const RELATIONS: PackedStringArray = [
 	"unspecified",
@@ -16,11 +16,14 @@ var _participant_a_input: ShortIdInput
 var _participant_b_input: ShortIdInput
 var _active_input: ShortIdInput
 var _relation: String = "unspecified"
-var _condition: String = "baseline"
 var _a_slot: int = 0
+var _ids_customized: bool = false
+var _side_overridden: bool = false
+var _syncing_ids: bool = false
 var _relation_button: Button
-var _condition_button: Button
 var _swap_button: Button
+var _customize_button: Button
+var _restore_button: Button
 var _continue_button: Button
 var _back_button: Button
 var _error_label: Label
@@ -38,12 +41,13 @@ func _load_existing_values() -> void:
 		if RELATIONS.has(GameState.relation_condition)
 		else "unspecified"
 	)
-	_condition = (
-		GameState.experiment_condition
-		if GameState.EXPERIMENT_CONDITIONS.has(GameState.experiment_condition)
-		else "baseline"
-	)
 	_a_slot = clampi(GameState.participant_a_slot, 0, 1)
+	if not GameState.dyad_id.is_empty():
+		_ids_customized = not (
+			GameState.is_default_participant_id(GameState.dyad_id, GameState.participant_A, "A")
+			and GameState.is_default_participant_id(GameState.dyad_id, GameState.participant_B, "B")
+		)
+		_side_overridden = GameState.participant_a_slot != GameState.default_a_slot_for_dyad(GameState.dyad_id)
 
 func _build() -> void:
 	add_child(MenuKit.make_grass_bg())
@@ -72,8 +76,8 @@ func _build() -> void:
 
 	var privacy: Label = MenuKit.make_panel_label(
 		GameState.ui(
-			"仅输入数字编号，禁止输入姓名（1–16 位）",
-			"NUMERIC RESEARCH IDS ONLY — NO NAMES (1-16 DIGITS)"
+			"只填组号即可。系统生成 D001 / D001-A / D001-B，禁止姓名。",
+			"ENTER DYAD NUMBER ONLY. SYSTEM MAKES D001 / D001-A / D001-B. NO NAMES."
 		),
 		20,
 		0.65,
@@ -92,16 +96,20 @@ func _build() -> void:
 	content.add_child(ids)
 
 	_dyad_input = _make_id_input(
-		GameState.ui("去标识化组号", "DYAD ID"), GameState.dyad_id
+		GameState.ui("组号", "DYAD ID"), GameState.dyad_id
 	)
 	_participant_a_input = _make_id_input(
-		GameState.ui("参与者 A 编号", "PARTICIPANT A ID"), GameState.participant_A
+		GameState.ui("参与者 A（自动）", "PARTICIPANT A (AUTO)"), GameState.participant_A
 	)
 	_participant_b_input = _make_id_input(
-		GameState.ui("参与者 B 编号", "PARTICIPANT B ID"), GameState.participant_B
+		GameState.ui("参与者 B（自动）", "PARTICIPANT B (AUTO)"), GameState.participant_B
 	)
+	_dyad_input.value_changed.connect(func(_value: String) -> void: _on_dyad_changed())
+	_participant_a_input.value_changed.connect(func(_value: String) -> void: _mark_ids_customized())
+	_participant_b_input.value_changed.connect(func(_value: String) -> void: _mark_ids_customized())
 	for input: ShortIdInput in _inputs:
 		ids.add_child(input)
+	_sync_auto_ids(false)
 
 	ids.add_child(_make_keypad())
 
@@ -119,18 +127,22 @@ func _build() -> void:
 		GameState.ui("实验分配", "EXPERIMENT ASSIGNMENT"), 28, MenuKit.COL_ACCENT, true
 	))
 
+	var protocol_note: Label = MenuKit.make_panel_label(
+		GameState.ui(
+			"标准协议 %s：一次完成五关。第 3 关记正常协调，第 4 关固定干扰。" % GameState.PROTOCOL_VERSION,
+			"PROTOCOL %s: ONE PASS. L3 = COORDINATION, L4 = PERTURBATION." % GameState.PROTOCOL_VERSION
+		),
+		20,
+		0.7,
+	)
+	protocol_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	settings.add_child(protocol_note)
+
 	_relation_button = _make_setting_button(_relation_text())
 	_relation_button.name = "Relation"
 	_relation_button.pressed.connect(_cycle_relation)
 	settings.add_child(_make_labeled_row(
-		GameState.ui("关系条件", "RELATION"), _relation_button
-	))
-
-	_condition_button = _make_setting_button(_condition_text())
-	_condition_button.name = "Condition"
-	_condition_button.pressed.connect(_cycle_condition)
-	settings.add_child(_make_labeled_row(
-		GameState.ui("实验条件", "CONDITION"), _condition_button
+		GameState.ui("关系条件（必选）", "RELATION (REQUIRED)"), _relation_button
 	))
 
 	_swap_button = _make_setting_button(_assignment_text())
@@ -140,10 +152,19 @@ func _build() -> void:
 		GameState.ui("参与者与侧别", "PARTICIPANT SIDES"), _swap_button
 	))
 
+	_customize_button = _make_setting_button(GameState.ui("自定义编号", "CUSTOM IDS"))
+	_customize_button.name = "CustomizeIds"
+	_customize_button.pressed.connect(_enable_custom_ids)
+	settings.add_child(_customize_button)
+	_restore_button = _make_setting_button(GameState.ui("恢复自动编号", "RESTORE AUTO IDS"))
+	_restore_button.name = "RestoreIds"
+	_restore_button.pressed.connect(_restore_auto_ids)
+	settings.add_child(_restore_button)
+
 	var locked_note: Label = MenuKit.make_panel_label(
 		GameState.ui(
-			"继续后实验条件将在选关页锁定为只读",
-			"CONDITION IS READ-ONLY AFTER CONTINUING"
+			"组号奇数 A=P1，偶数 A=P2。覆盖仅用于设备故障，最终侧别会写入日志。",
+			"ODD DYAD: A=P1. EVEN DYAD: A=P2. OVERRIDE ONLY FOR DEVICE FAULTS."
 		),
 		20,
 		0.6,
@@ -203,6 +224,13 @@ func _make_keypad() -> VBoxContainer:
 		button.pressed.connect(_on_digit_pressed.bind(digit))
 		grid.add_child(button)
 		_keypad_buttons.append(button)
+
+	for letter: String in ["D", "A", "B"]:
+		var letter_button: Button = _make_key_button(letter)
+		letter_button.name = "Key_%s" % letter
+		letter_button.pressed.connect(_on_digit_pressed.bind(letter))
+		grid.add_child(letter_button)
+		_keypad_buttons.append(letter_button)
 
 	var clear_button: Button = _make_key_button(GameState.ui("清空", "CLEAR"), 20)
 	clear_button.name = "Clear"
@@ -324,17 +352,61 @@ func _close_other_editors(active: ShortIdInput) -> void:
 		if input != active and input.editing:
 			input.finish_editing()
 
+func _on_dyad_changed() -> void:
+	if _syncing_ids:
+		return
+	var normalized: String = GameState.normalize_dyad_id(_dyad_input.value)
+	if not normalized.is_empty() and normalized != _dyad_input.value:
+		_syncing_ids = true
+		_dyad_input.set_value(normalized)
+		_syncing_ids = false
+	_sync_auto_ids(false)
+
+func _mark_ids_customized() -> void:
+	if _syncing_ids:
+		return
+	_ids_customized = true
+	_refresh_id_editability()
+
+func _sync_auto_ids(force: bool) -> void:
+	if _dyad_input == null:
+		return
+	var dyad: String = GameState.normalize_dyad_id(_dyad_input.value)
+	if (not _ids_customized or force) and _participant_a_input != null and _participant_b_input != null:
+		_syncing_ids = true
+		_participant_a_input.set_value(GameState.default_participant_id(dyad, "A"))
+		_participant_b_input.set_value(GameState.default_participant_id(dyad, "B"))
+		_syncing_ids = false
+	if not _side_overridden:
+		_a_slot = GameState.default_a_slot_for_dyad(dyad)
+	if _swap_button != null:
+		_swap_button.text = _assignment_text()
+	_refresh_id_editability()
+	_refresh_id_error()
+
+func _enable_custom_ids() -> void:
+	_ids_customized = true
+	_refresh_id_editability()
+	_participant_a_input.begin_editing()
+
+func _restore_auto_ids() -> void:
+	_ids_customized = false
+	_side_overridden = false
+	_sync_auto_ids(true)
+
+func _refresh_id_editability() -> void:
+	if _participant_a_input == null or _participant_b_input == null:
+		return
+	_participant_a_input.set_editable(_ids_customized)
+	_participant_b_input.set_editable(_ids_customized)
+
 func _cycle_relation() -> void:
 	_relation = RELATIONS[(RELATIONS.find(_relation) + 1) % RELATIONS.size()]
 	_relation_button.text = _relation_text()
 
-func _cycle_condition() -> void:
-	var index: int = GameState.EXPERIMENT_CONDITIONS.find(_condition)
-	_condition = GameState.EXPERIMENT_CONDITIONS[(index + 1) % GameState.EXPERIMENT_CONDITIONS.size()]
-	_condition_button.text = _condition_text()
-
 func _swap_sides() -> void:
 	_a_slot = 1 - _a_slot
+	_side_overridden = true
 	_swap_button.text = _assignment_text()
 
 func _relation_text() -> String:
@@ -348,29 +420,35 @@ func _relation_text() -> String:
 		_:
 			return GameState.ui("未指定", "UNSPECIFIED")
 
-func _condition_text() -> String:
-	return (
-		GameState.ui("扰动", "PERTURBATION")
-		if _condition == "perturbation"
-		else GameState.ui("基线", "BASELINE")
-	)
-
 func _assignment_text() -> String:
-	return (
+	var sides: String = (
 		GameState.ui("A=P1 左屏 · B=P2 右屏", "A=P1 LEFT · B=P2 RIGHT")
 		if _a_slot == 0
 		else GameState.ui("B=P1 左屏 · A=P2 右屏", "B=P1 LEFT · A=P2 RIGHT")
 	)
+	if _side_overridden:
+		return "%s · %s" % [sides, GameState.ui("已覆盖", "OVERRIDDEN")]
+	return "%s · %s" % [sides, GameState.ui("按组号奇偶", "BY DYAD PARITY")]
 
 func _continue_to_pairing() -> void:
 	_finish_active_input()
-	var clean_dyad: String = GameState.sanitize_experiment_id(_dyad_input.value)
+	var clean_dyad: String = GameState.normalize_dyad_id(_dyad_input.value)
 	var clean_a: String = GameState.sanitize_experiment_id(_participant_a_input.value)
 	var clean_b: String = GameState.sanitize_experiment_id(_participant_b_input.value)
-	if clean_dyad.is_empty() or clean_a.is_empty() or clean_b.is_empty():
+	if clean_a.is_empty():
+		clean_a = GameState.default_participant_id(clean_dyad, "A")
+	if clean_b.is_empty():
+		clean_b = GameState.default_participant_id(clean_dyad, "B")
+	if clean_dyad.is_empty():
 		_error_label.text = GameState.ui(
-			"请填写组号与两名参与者的有效编号（1–16 位数字）。",
-			"ENTER VALID NUMERIC IDS FOR THE DYAD AND BOTH PARTICIPANTS.",
+			"请填写有效组号，例如 1 或 D001。",
+			"ENTER A VALID DYAD NUMBER, SUCH AS 1 OR D001.",
+		)
+		return
+	if _relation == "unspecified":
+		_error_label.text = GameState.ui(
+			"请选择关系条件（陌生人 / 朋友 / 伴侣）。未指定不能进入正式数据。",
+			"CHOOSE STRANGERS, FRIENDS, OR PARTNERS. UNSPECIFIED IS NOT ALLOWED.",
 		)
 		return
 	if clean_a == clean_b:
@@ -384,13 +462,12 @@ func _continue_to_pairing() -> void:
 		clean_a,
 		clean_b,
 		_relation,
-		_condition,
 		_a_slot,
 	)
 	if not locked:
 		_error_label.text = GameState.ui(
-			"实验信息无效，请检查后重试。",
-			"EXPERIMENT SETUP IS INVALID. PLEASE RETRY.",
+			"实验信息无效，请检查组号、A/B 编号与关系条件。",
+			"SETUP IS INVALID. CHECK DYAD ID, A/B IDS, AND RELATION.",
 		)
 		return
 	InputHub.clear_slots()
@@ -424,8 +501,9 @@ func _wire_page_focus() -> void:
 		_participant_a_input.entry_button(),
 		_participant_b_input.entry_button(),
 		_relation_button,
-		_condition_button,
 		_swap_button,
+		_customize_button,
+		_restore_button,
 		_continue_button,
 		_back_button,
 	]
@@ -464,6 +542,8 @@ func _wire_keypad_focus() -> void:
 		button.focus_neighbor_right = button.get_path_to(_keypad_buttons[right_index])
 		button.focus_neighbor_top = button.get_path_to(all_buttons[up_index])
 		button.focus_neighbor_bottom = button.get_path_to(all_buttons[down_index])
-	_done_button.focus_neighbor_top = _done_button.get_path_to(_keypad_buttons[10])
+	_done_button.focus_neighbor_top = _done_button.get_path_to(
+		_keypad_buttons[_keypad_buttons.size() - 1]
+	)
 	_done_button.focus_neighbor_left = _done_button.get_path_to(_done_button)
 	_done_button.focus_neighbor_right = _done_button.get_path_to(_done_button)

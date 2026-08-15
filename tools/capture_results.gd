@@ -29,7 +29,7 @@ func _run() -> void:
 		"avg_force": 3.47,
 		"full_push_ratio": 0.42,
 		"fine_control_ratio": 0.28,
-		"experiment_condition": "baseline",
+		"protocol_version": "pilot-1.0",
 	}
 	# 不能用 change_scene_to_file：本工具自己就是 current_scene，切场景会把自己释放掉。
 	var packed: PackedScene = load("res://scenes/results_screen.tscn") as PackedScene

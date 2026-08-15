@@ -1,8 +1,8 @@
 class_name ExperimentProtocol
 extends Resource
-## 离线行为分析协议。所有阈值随派生结果写入 analysis_metadata.csv。
+## 离线行为分析协议。阈值写入 results/analysis_manifest.json，不单独成表。
 
-const ANALYSIS_VERSION: String = "1.0.0"
+const ANALYSIS_VERSION: String = "2.0.0"
 
 @export_range(0.0, 1.0, 0.01) var activity_threshold: float = 0.20
 @export_range(-1.0, 1.0, 0.01) var conflict_cosine_threshold: float = -0.50
