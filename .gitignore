@@ -6,3 +6,6 @@
 
 # layout_audit 生成的关卡预览图（随时可重跑，不入库）
 docs/layout_previews/
+
+# README 配图只给 GitHub 看，不必进 Godot 导入缓存
+docs/readme/*.import
