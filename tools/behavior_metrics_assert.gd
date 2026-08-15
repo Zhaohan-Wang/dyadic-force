@@ -1,7 +1,11 @@
 extends SceneTree
 ## 合成确定性验证：基础协作、已知 lag、补偿、恢复、删失、过补偿与复核抽样。
 
-const SESSION_TEST_COLUMNS: PackedStringArray = ["session_id", "force_max"]
+const SESSION_TEST_COLUMNS: PackedStringArray = [
+	"session_id", "dyad_id", "participant_A", "participant_B",
+	"relation_condition", "side_assignment", "force_max",
+	"physics_ticks_per_second",
+]
 const FRAME_TEST_COLUMNS: PackedStringArray = [
 	"session_id", "trial_id", "life_id", "level_id", "level_attempt_index",
 	"protocol_version", "trial_elapsed_ms", "physics_delta_s", "A_slot", "B_slot",
@@ -24,6 +28,7 @@ func _run() -> void:
 	protocol.force_smoothing_ms = 40.0
 	protocol.cross_correlation_min_active_ms = 300.0
 	_test_trial_metrics(protocol)
+	_test_invalid_and_quality_metrics(protocol)
 	_test_perturbation_metrics(protocol)
 	_test_censoring(protocol)
 	_test_review_package(protocol)
@@ -65,6 +70,37 @@ func _test_trial_metrics(protocol: ExperimentProtocol) -> void:
 	)
 	_expect_close(conflict["conflict_ratio"], 1.0, 0.001, "conflict ratio")
 	_expect_close(conflict["intensity_difference_mean"], 0.0, 0.001, "intensity difference")
+
+func _test_invalid_and_quality_metrics(protocol: ExperimentProtocol) -> void:
+	var frames: Array[Dictionary] = []
+	for i: int in 5:
+		var frame: Dictionary = _frame(
+			i * 20.0, 0.5, 0.0, 0.5, 0.0, 5.0, 5.0
+		)
+		frame["render_fps"] = 60.0
+		frame["A_connected"] = 1
+		frame["B_connected"] = 1
+		frames.append(frame)
+	frames[-1]["physics_delta_s"] = 0.06
+	frames[-1]["system_quality"] = "late"
+	var quit_end: Dictionary = _event(100.0, "trial_end", "quit")
+	quit_end["note"] = "level_select_requested"
+	var result: Dictionary = ExperimentAnalyzer.analyze_trial(
+		frames, [quit_end], protocol, 1.0, 60.0
+	)
+	_expect(result["quit_reason"] == "level_select_requested", "quit reason")
+	_expect(result["intensity_difference_mean"] == null, "quit intensity must be missing")
+	_expect(
+		result["route_correction_integral_A"] == null,
+		"quit correction integral must be missing",
+	)
+	_expect_close(result["mean_render_fps"], 60.0, 0.01, "mean render fps")
+	_expect_close(result["mean_physics_delta_ms"], 28.0, 0.01, "mean physics delta")
+	_expect(
+		float(result["estimated_frame_drop_pct"]) > 5.0,
+		"estimated frame drop percentage",
+	)
+	_expect(str(result["quality_flag"]).contains("high_frame_drop"), "frame-drop QC flag")
 
 func _test_perturbation_metrics(protocol: ExperimentProtocol) -> void:
 	var frames: Array[Dictionary] = []
@@ -109,8 +145,11 @@ func _test_perturbation_metrics(protocol: ExperimentProtocol) -> void:
 	_expect_close(result["compensation_reaction_ms"], 100.0, 20.1, "compensation reaction")
 	_expect(result["recovery_status"] == "recovered", "500ms recovery")
 	_expect_close(result["recovery_time_ms"], 800.0, 20.1, "recovery onset")
+	_expect_close(result["recovery_stable_time_ms"], 800.0, 20.1, "recovery analysis time")
 	_expect(result["overshoot_status"] == "overshoot", "overshoot detection")
-	_expect_close(result["overshoot_ratio"], 0.5, 0.01, "overshoot ratio")
+	_expect_close(
+		result["overcompensation_index"], 0.5, 0.01, "overcompensation index"
+	)
 	_expect(int(result["overshoot_round_trips"]) == 1, "overshoot round trip")
 
 func _test_censoring(protocol: ExperimentProtocol) -> void:
@@ -124,6 +163,10 @@ func _test_censoring(protocol: ExperimentProtocol) -> void:
 	)
 	_expect(result["compensation_status"] == "censored", "compensation censoring")
 	_expect(int(result["recovery_censored"]) == 1, "recovery censoring")
+	_expect_close(
+		result["recovery_stable_time_ms"], 300.0, 20.1,
+		"censored recovery observation limit",
+	)
 
 func _test_review_package(protocol: ExperimentProtocol) -> void:
 	var root: String = "user://behavior_metrics_assert"
@@ -134,7 +177,10 @@ func _test_review_package(protocol: ExperimentProtocol) -> void:
 	_write_rows(
 		root.path_join("session.csv"),
 		SESSION_TEST_COLUMNS,
-		[["FIXED_SESSION", 1.0]],
+		[[
+			"FIXED_SESSION", "S9-D001", "S9-D001-A", "S9-D001-B",
+			"friends", "A=P1;B=P2", 1.0, 60,
+		]],
 	)
 
 	var frame_rows: Array[Array] = []
@@ -181,6 +227,15 @@ func _test_review_package(protocol: ExperimentProtocol) -> void:
 	)
 	_expect(FileAccess.file_exists(root.path_join("results").path_join("trial_results.csv")), "trial_results missing")
 	_expect(FileAccess.file_exists(root.path_join("results").path_join("perturbation_results.csv")), "perturbation_results missing")
+	var trial_rows: Array[Dictionary] = ExperimentAnalyzer.read_csv(
+		root.path_join("results").path_join("trial_results.csv")
+	)
+	_expect(not trial_rows.is_empty(), "trial summary unreadable")
+	if not trial_rows.is_empty():
+		var trial: Dictionary = trial_rows[0]
+		_expect(trial.get("dyad_id") == "S9-D001", "trial identity not denormalized")
+		_expect(int(trial.get("perturbation_count", 0)) == 10, "trial perturbation count")
+		_expect(trial.get("perturbed_participants") == "A;B", "trial perturbed participants")
 	_expect(ExperimentAnalyzer.export_review_package(paths, protocol), "first review package")
 	var first_ids: PackedStringArray = _review_ids(root.path_join("qc").path_join("review_queue.csv"))
 	_expect(first_ids.size() >= 2, "at least 20 percent review sample")
@@ -207,7 +262,7 @@ func _frame(
 	signed_error: float,
 ) -> Dictionary:
 	return {
-		"schema_version": "2.0.0", "session_id": "S", "trial_id": "S-T0001",
+		"schema_version": "3.1.0", "session_id": "S", "trial_id": "S-T0001",
 		"life_id": "S-T0001-L001", "level_id": "synthetic",
 		"level_attempt_index": 1, "protocol_version": "pilot-1.0",
 		"trial_elapsed_ms": time_ms, "physics_delta_s": 0.02,
@@ -225,7 +280,7 @@ func _frame(
 
 func _event(time_ms: float, event_type: String, outcome: String = "") -> Dictionary:
 	return {
-		"schema_version": "2.0.0", "session_id": "S", "trial_id": "S-T0001",
+		"schema_version": "3.1.0", "session_id": "S", "trial_id": "S-T0001",
 		"life_id": "S-T0001-L001", "level_id": "synthetic",
 		"level_attempt_index": 1, "protocol_version": "pilot-1.0",
 		"trial_elapsed_ms": time_ms, "event_type": event_type, "outcome": outcome,

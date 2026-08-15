@@ -2,7 +2,7 @@ class_name ExperimentProtocol
 extends Resource
 ## 离线行为分析协议。阈值写入 results/analysis_manifest.json，不单独成表。
 
-const ANALYSIS_VERSION: String = "2.0.0"
+const ANALYSIS_VERSION: String = "2.1.0"
 
 @export_range(0.0, 1.0, 0.01) var activity_threshold: float = 0.20
 @export_range(-1.0, 1.0, 0.01) var conflict_cosine_threshold: float = -0.50
@@ -25,6 +25,8 @@ const ANALYSIS_VERSION: String = "2.0.0"
 @export var recovery_angular_speed_floor: float = 0.15
 
 @export var overshoot_hysteresis: float = 2.0
+@export var minimum_effective_sample_hz: float = 55.0
+@export_range(0.0, 100.0, 0.1) var maximum_frame_drop_pct: float = 5.0
 @export_range(0.2, 1.0, 0.01) var review_fraction: float = 0.20
 @export var review_window_before_ms: float = 2000.0
 @export var review_window_after_ms: float = 2000.0
@@ -51,6 +53,8 @@ func metadata() -> Dictionary:
 		"recovery_speed_floor": recovery_speed_floor,
 		"recovery_angular_speed_floor": recovery_angular_speed_floor,
 		"overshoot_hysteresis": overshoot_hysteresis,
+		"minimum_effective_sample_hz": minimum_effective_sample_hz,
+		"maximum_frame_drop_pct": maximum_frame_drop_pct,
 		"review_fraction": review_fraction,
 		"review_window_before_ms": review_window_before_ms,
 		"review_window_after_ms": review_window_after_ms,

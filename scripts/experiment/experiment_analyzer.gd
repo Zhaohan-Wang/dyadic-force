@@ -7,17 +7,34 @@ const RESULT_FILES: PackedStringArray = [
 	"trial_results.csv", "perturbation_results.csv", "gate_results.csv",
 	"segment_results.csv", "choice_results.csv",
 ]
+const QUIT_REASONS: PackedStringArray = [
+	"level_select_requested", "level_tree_exit", "controller_disconnected",
+]
 
 const TRIAL_COLUMNS: PackedStringArray = [
-	"analysis_version", "session_id", "trial_id", "level_id", "level_attempt_index",
-	"protocol_version",
-	"outcome", "completion_time_ms", "direction_cosine_mean", "direction_cosine_median",
+	"analysis_version", "session_id", "trial_id", "dyad_id", "participant_A",
+	"participant_B", "relation_condition", "side_assignment", "level_id",
+	"level_attempt_index", "protocol_version",
+	"outcome", "quit_reason", "completion_time_ms",
+	"perturbation_count", "perturbed_participants", "perturb_gain_mean",
+	"perturb_first_onset_ms", "perturb_last_offset_ms",
+	"compensation_valid_count", "compensation_reaction_median_ms",
+	"recovery_recovered_count", "recovery_censored_count",
+	"recovery_time_median_ms", "recovery_observation_max_ms",
+	"overcompensation_count", "overcompensation_index_max",
+	"direction_cosine_mean", "direction_cosine_median",
 	"conflict_ratio", "startup_difference_ms", "startup_status", "trial_leader",
 	"collision_count", "death_count", "mean_route_error", "max_progress",
-	"trial_duration_ms", "direction_valid_ms", "simultaneous_active_ms", "xcorr_status",
+	"trial_duration_ms", "mean_render_fps", "mean_physics_delta_ms",
+	"effective_sample_hz",
+	"late_frame_pct", "estimated_frame_drop_pct", "disconnected_frame_pct",
+	"controller_disconnect_count", "quality_flag",
+	"direction_valid_ms", "simultaneous_active_ms", "xcorr_status",
 	"A_start_ms", "B_start_ms", "intensity_difference_mean", "intensity_difference_p95",
 	"intensity_difference_max", "xcorr_lag_ms", "xcorr_peak", "xcorr_leader",
-	"xcorr_confidence", "correction_A", "correction_B", "p95_route_error",
+	"xcorr_confidence", "route_correction_exposure_ms",
+	"route_correction_integral_A", "route_correction_integral_B",
+	"p95_route_error",
 	"max_route_error", "outside_boundary_ms", "route_length",
 ]
 
@@ -26,9 +43,10 @@ const PERTURBATION_COLUMNS: PackedStringArray = [
 	"level_id", "onset_ms", "offset_ms", "perturbed_participant", "perturbed_slot",
 	"gain", "compensation_status", "compensation_onset_ms",
 	"compensation_reaction_ms", "compensation_peak_projection",
-	"recovery_status", "recovery_time_ms", "recovery_observation_ms",
+	"recovery_status", "recovery_time_ms", "recovery_stable_time_ms",
+	"recovery_observation_ms",
 	"recovery_censored", "overshoot_status", "overshoot_first_reverse_max",
-	"overshoot_ratio", "overshoot_round_trips",
+	"overcompensation_index", "overshoot_round_trips",
 ]
 
 const GATE_COLUMNS: PackedStringArray = [
@@ -121,6 +139,9 @@ static func analyze_session(paths: Dictionary, protocol: ExperimentProtocol = nu
 		return {}
 	var session: Dictionary = session_rows[0]
 	var force_scale: float = maxf(_number(session.get("force_max", 1.0)), 0.000001)
+	var nominal_sample_hz: float = maxf(
+		_number(session.get("physics_ticks_per_second", 60.0)), 1.0
+	)
 	var session_id: String = str(session.get("session_id", ""))
 	var trial_ids: PackedStringArray = PackedStringArray()
 	for frame: Dictionary in frames:
@@ -140,10 +161,15 @@ static func analyze_session(paths: Dictionary, protocol: ExperimentProtocol = nu
 		var trial_events: Array[Dictionary] = _filter_trial(events, trial_id)
 		frames_by_trial[trial_id] = trial_frames
 		var trial_result: Dictionary = analyze_trial(
-			trial_frames, trial_events, active_protocol, force_scale
+			trial_frames, trial_events, active_protocol, force_scale, nominal_sample_hz
 		)
 		trial_result["session_id"] = session_id
-		trial_results.append(trial_result)
+		for identity_field: String in [
+			"dyad_id", "participant_A", "participant_B",
+			"relation_condition", "side_assignment",
+		]:
+			trial_result[identity_field] = session.get(identity_field, "")
+		var trial_perturbations: Array[Dictionary] = []
 		var on_count: int = 0
 		for event_index: int in trial_events.size():
 			var event: Dictionary = trial_events[event_index]
@@ -170,6 +196,9 @@ static func analyze_session(paths: Dictionary, protocol: ExperimentProtocol = nu
 			perturbation["perturbation_id"] = perturbation_id
 			perturbation["level_id"] = str(event.get("level_id", ""))
 			perturbation_results.append(perturbation)
+			trial_perturbations.append(perturbation)
+		_add_perturbation_summary(trial_result, trial_perturbations)
+		trial_results.append(trial_result)
 
 	var gate_results: Array[Dictionary] = []
 	var segment_results: Array[Dictionary] = []
@@ -343,6 +372,7 @@ static func analyze_trial(
 	events: Array[Dictionary],
 	protocol: ExperimentProtocol,
 	force_scale: float = 1.0,
+	nominal_sample_hz: float = 60.0,
 ) -> Dictionary:
 	var result: Dictionary = {
 		"analysis_version": ExperimentProtocol.ANALYSIS_VERSION,
@@ -355,19 +385,45 @@ static func analyze_trial(
 	var cosines: Array[float] = []
 	var differences: Array[float] = []
 	var errors: Array[float] = []
+	var render_fps_values: Array[float] = []
 	var simultaneous_ms: float = 0.0
 	var conflict_ms: float = 0.0
 	var direction_ms: float = 0.0
 	var outside_ms: float = 0.0
+	var correction_exposure_ms: float = 0.0
 	var route_length: float = 0.0
 	var max_progress: float = 0.0
 	var correction_a: float = 0.0
 	var correction_b: float = 0.0
+	var total_sample_ms: float = 0.0
+	var expected_frame_slots: int = 0
+	var estimated_dropped_slots: int = 0
+	var late_frame_count: int = 0
+	var disconnected_frame_count: int = 0
 	var previous_position: Vector2
 	var has_previous_position: bool = false
 	var scale: float = maxf(force_scale, 0.000001)
 	for frame: Dictionary in frames:
 		var dt_ms: float = _frame_delta_ms(frame)
+		total_sample_ms += dt_ms
+		var expected_slots: int = maxi(
+			1, int(round(dt_ms * maxf(nominal_sample_hz, 1.0) / 1000.0))
+		)
+		expected_frame_slots += expected_slots
+		estimated_dropped_slots += expected_slots - 1
+		if dt_ms > (1000.0 / maxf(nominal_sample_hz, 1.0)) * 1.5:
+			late_frame_count += 1
+		var render_fps: float = _number(frame.get("render_fps", 0.0))
+		if render_fps > 0.0:
+			render_fps_values.append(render_fps)
+		var a_connected: String = str(frame.get("A_connected", ""))
+		var b_connected: String = str(frame.get("B_connected", ""))
+		if (
+			str(frame.get("system_quality", "")) == "disconnected"
+			or (not a_connected.is_empty() and not _truthy(a_connected))
+			or (not b_connected.is_empty() and not _truthy(b_connected))
+		):
+			disconnected_frame_count += 1
 		var a: Vector2 = _force(frame, "A")
 		var b: Vector2 = _force(frame, "B")
 		var a_norm: float = a.length() / scale
@@ -397,6 +453,7 @@ static func analyze_trial(
 			_number(frame.get("route_error_y", 0.0))
 		)
 		if error.length() >= protocol.compensation_min_error:
+			correction_exposure_ms += dt_ms
 			var correction_direction: Vector2 = -error.normalized()
 			correction_a += maxf(a.dot(correction_direction) / scale, 0.0) * dt_ms
 			correction_b += maxf(b.dot(correction_direction) / scale, 0.0) * dt_ms
@@ -426,13 +483,42 @@ static func analyze_trial(
 	result["intensity_difference_max"] = _maximum(differences)
 	result["conflict_ratio"] = conflict_ms / simultaneous_ms if simultaneous_ms > 0.0 else null
 	result["simultaneous_active_ms"] = simultaneous_ms
-	result["correction_A"] = correction_a
-	result["correction_B"] = correction_b
+	result["route_correction_exposure_ms"] = (
+		correction_exposure_ms if correction_exposure_ms > 0.0 else null
+	)
+	result["route_correction_integral_A"] = (
+		correction_a if correction_exposure_ms > 0.0 else null
+	)
+	result["route_correction_integral_B"] = (
+		correction_b if correction_exposure_ms > 0.0 else null
+	)
 	result["trial_leader"] = _trial_leader(a_start, b_start, xcorr, correction_a, correction_b)
 	result["collision_count"] = _count_event(events, "collision")
 	result["death_count"] = _count_event(events, "death_collision")
 	result["outcome"] = _trial_outcome(events)
+	result["quit_reason"] = _quit_reason(frames, events, str(result["outcome"]))
 	result["trial_duration_ms"] = _last_time_ms(frames, events)
+	result["mean_render_fps"] = _mean(render_fps_values)
+	result["mean_physics_delta_ms"] = (
+		total_sample_ms / float(frames.size()) if not frames.is_empty() else null
+	)
+	result["effective_sample_hz"] = (
+		float(frames.size()) * 1000.0 / total_sample_ms if total_sample_ms > 0.0 else null
+	)
+	result["late_frame_pct"] = (
+		100.0 * float(late_frame_count) / float(frames.size())
+		if not frames.is_empty() else null
+	)
+	result["estimated_frame_drop_pct"] = (
+		100.0 * float(estimated_dropped_slots) / float(expected_frame_slots)
+		if expected_frame_slots > 0 else null
+	)
+	result["disconnected_frame_pct"] = (
+		100.0 * float(disconnected_frame_count) / float(frames.size())
+		if not frames.is_empty() else null
+	)
+	result["controller_disconnect_count"] = _count_event(events, "controller_disconnect")
+	result["quality_flag"] = _quality_flag(result, protocol)
 	var run_start_ms: Variant = _event_time(events, "run_start")
 	result["completion_time_ms"] = (
 		_last_time_ms(frames, events) - float(run_start_ms) if run_start_ms != null else null
@@ -443,7 +529,142 @@ static func analyze_trial(
 	result["max_progress"] = max_progress
 	result["outside_boundary_ms"] = outside_ms
 	result["route_length"] = route_length
+	if str(result["outcome"]) in ["quit", "aborted", "incomplete", "restarted"]:
+		_clear_invalid_trial_metrics(result)
 	return result
+
+static func _add_perturbation_summary(
+	result: Dictionary, perturbations: Array[Dictionary]
+) -> void:
+	var participants: Dictionary = {}
+	var gains: Array[float] = []
+	var onsets: Array[float] = []
+	var offsets: Array[float] = []
+	var compensation_reactions: Array[float] = []
+	var recovery_times: Array[float] = []
+	var recovery_observations: Array[float] = []
+	var compensation_valid_count: int = 0
+	var recovery_recovered_count: int = 0
+	var recovery_censored_count: int = 0
+	var overcompensation_count: int = 0
+	var overcompensation_indices: Array[float] = []
+	for perturbation: Dictionary in perturbations:
+		var participant: String = str(perturbation.get("perturbed_participant", ""))
+		if participant in ["A", "B"]:
+			participants[participant] = true
+		_append_number(gains, perturbation.get("gain"))
+		_append_number(onsets, perturbation.get("onset_ms"))
+		_append_number(offsets, perturbation.get("offset_ms"))
+		if str(perturbation.get("compensation_status", "")) == "valid":
+			compensation_valid_count += 1
+			_append_number(
+				compensation_reactions,
+				perturbation.get("compensation_reaction_ms"),
+			)
+		var recovery_status: String = str(perturbation.get("recovery_status", ""))
+		if recovery_status == "recovered":
+			recovery_recovered_count += 1
+			_append_number(recovery_times, perturbation.get("recovery_time_ms"))
+		elif recovery_status == "censored":
+			recovery_censored_count += 1
+		_append_number(
+			recovery_observations,
+			perturbation.get("recovery_observation_ms"),
+		)
+		if str(perturbation.get("overshoot_status", "")) == "overshoot":
+			overcompensation_count += 1
+			_append_number(
+				overcompensation_indices,
+				perturbation.get("overcompensation_index"),
+			)
+	var participant_labels: PackedStringArray = PackedStringArray()
+	for participant: String in ["A", "B"]:
+		if participants.has(participant):
+			participant_labels.append(participant)
+	result["perturbation_count"] = perturbations.size()
+	result["perturbed_participants"] = (
+		"none" if participant_labels.is_empty() else ";".join(participant_labels)
+	)
+	result["perturb_gain_mean"] = _mean(gains)
+	result["perturb_first_onset_ms"] = _percentile(onsets, 0.0)
+	result["perturb_last_offset_ms"] = _maximum(offsets)
+	result["compensation_valid_count"] = compensation_valid_count
+	result["compensation_reaction_median_ms"] = _percentile(
+		compensation_reactions, 0.5
+	)
+	result["recovery_recovered_count"] = recovery_recovered_count
+	result["recovery_censored_count"] = recovery_censored_count
+	result["recovery_time_median_ms"] = _percentile(recovery_times, 0.5)
+	result["recovery_observation_max_ms"] = _maximum(recovery_observations)
+	result["overcompensation_count"] = overcompensation_count
+	result["overcompensation_index_max"] = _maximum(overcompensation_indices)
+
+static func _append_number(values: Array[float], value: Variant) -> void:
+	if value == null or str(value).is_empty():
+		return
+	values.append(_number(value))
+
+static func _quality_flag(result: Dictionary, protocol: ExperimentProtocol) -> String:
+	var flags: PackedStringArray = PackedStringArray()
+	var effective: Variant = result.get("effective_sample_hz")
+	var dropped: Variant = result.get("estimated_frame_drop_pct")
+	var disconnected: Variant = result.get("disconnected_frame_pct")
+	if effective == null:
+		flags.append("no_frame_data")
+	elif float(effective) < protocol.minimum_effective_sample_hz:
+		flags.append("low_sample_rate")
+	if dropped != null and float(dropped) > protocol.maximum_frame_drop_pct:
+		flags.append("high_frame_drop")
+	if (
+		(disconnected != null and float(disconnected) > 0.0)
+		or int(result.get("controller_disconnect_count", 0)) > 0
+	):
+		flags.append("controller_disconnected")
+	return "ok" if flags.is_empty() else ";".join(flags)
+
+static func _quit_reason(
+	frames: Array[Dictionary], events: Array[Dictionary], outcome: String
+) -> String:
+	if outcome != "quit":
+		return ""
+	if not frames.is_empty():
+		var last_frame: Dictionary = frames[-1]
+		if (
+			str(last_frame.get("system_quality", "")) == "disconnected"
+			or (
+				not str(last_frame.get("A_connected", "")).is_empty()
+				and not _truthy(last_frame.get("A_connected"))
+			)
+			or (
+				not str(last_frame.get("B_connected", "")).is_empty()
+				and not _truthy(last_frame.get("B_connected"))
+			)
+		):
+			return "controller_disconnected"
+	var candidate: String = ""
+	for i: int in range(events.size() - 1, -1, -1):
+		var event_type: String = str(events[i].get("event_type", ""))
+		if event_type == "trial_end" or event_type == "quit_mid_trial":
+			var note: String = str(events[i].get("note", ""))
+			if not note.is_empty():
+				candidate = note
+				break
+	return candidate if QUIT_REASONS.has(candidate) else "unspecified"
+
+static func _clear_invalid_trial_metrics(result: Dictionary) -> void:
+	for field: String in [
+		"completion_time_ms", "direction_cosine_mean", "direction_cosine_median",
+		"conflict_ratio", "startup_difference_ms", "startup_status", "trial_leader",
+		"mean_route_error", "max_progress", "direction_valid_ms",
+		"simultaneous_active_ms", "xcorr_status", "A_start_ms", "B_start_ms",
+		"intensity_difference_mean", "intensity_difference_p95",
+		"intensity_difference_max", "xcorr_lag_ms", "xcorr_peak",
+		"xcorr_leader", "xcorr_confidence", "route_correction_exposure_ms",
+		"route_correction_integral_A", "route_correction_integral_B",
+		"p95_route_error", "max_route_error", "outside_boundary_ms",
+		"route_length",
+	]:
+		result[field] = null
 
 ## 纯函数：分析单次 perturb_on。offset_ms 为匹配 perturb_off 或观察终点。
 static func analyze_perturbation(
@@ -658,6 +879,7 @@ static func _recovery(
 				return {
 					"recovery_status": "recovered",
 					"recovery_time_ms": candidate - onset_ms,
+					"recovery_stable_time_ms": candidate - onset_ms,
 					"recovery_observation_ms": time_ms - onset_ms,
 					"recovery_censored": 0,
 				}
@@ -666,6 +888,7 @@ static func _recovery(
 	return {
 		"recovery_status": "censored",
 		"recovery_time_ms": null,
+		"recovery_stable_time_ms": maxf(last_time - onset_ms, 0.0),
 		"recovery_observation_ms": maxf(last_time - onset_ms, 0.0),
 		"recovery_censored": 1,
 	}
@@ -680,7 +903,7 @@ static func _overshoot(
 	if absf(initial) < protocol.overshoot_hysteresis:
 		return {
 			"overshoot_status": "not_eligible", "overshoot_first_reverse_max": null,
-			"overshoot_ratio": null, "overshoot_round_trips": 0,
+			"overcompensation_index": null, "overshoot_round_trips": 0,
 		}
 	var initial_sign: float = signf(initial)
 	var state: int = 1
@@ -704,7 +927,7 @@ static func _overshoot(
 	return {
 		"overshoot_status": "overshoot" if crossings > 0 else "none",
 		"overshoot_first_reverse_max": first_reverse_max if crossings > 0 else 0.0,
-		"overshoot_ratio": first_reverse_max / absf(initial) if crossings > 0 else 0.0,
+		"overcompensation_index": first_reverse_max / absf(initial) if crossings > 0 else 0.0,
 		"overshoot_round_trips": round_trips,
 	}
 
@@ -1075,11 +1298,12 @@ static func _set_ineligible_perturbation(result: Dictionary, status: String) -> 
 	result["compensation_peak_projection"] = null
 	result["recovery_status"] = status
 	result["recovery_time_ms"] = null
-	result["recovery_observation_ms"] = 0.0
+	result["recovery_stable_time_ms"] = null
+	result["recovery_observation_ms"] = null
 	result["recovery_censored"] = 0
 	result["overshoot_status"] = status
 	result["overshoot_first_reverse_max"] = null
-	result["overshoot_ratio"] = null
+	result["overcompensation_index"] = null
 	result["overshoot_round_trips"] = 0
 
 static func _filter_trial(rows: Array[Dictionary], trial_id: String) -> Array[Dictionary]:

@@ -81,8 +81,11 @@ func _run() -> void:
 	_expect(_log.end_trial("restarted"), "automatic derived export failed after restart")
 
 	_expect(_log.begin_trial(level_def, "baseline"), "quit trial did not start")
-	_log.log_event("quit_mid_trial")
-	_expect(_log.end_trial("quit"), "automatic derived export failed after quit")
+	_log.log_event("quit_mid_trial", {"note": "level_select_requested"})
+	_expect(
+		_log.end_trial("quit", "level_select_requested"),
+		"automatic derived export failed after quit",
+	)
 
 	# 事件缓冲与 flush 压力代理：6000 行远高于一分钟 60 Hz 的离散事件量。
 	_expect(_log.begin_trial(level_def, "baseline"), "flush trial did not start")
@@ -109,6 +112,9 @@ func _run() -> void:
 	_assert_clock(frames, "frames")
 	_assert_shared_clock_domain(events, frames)
 	_assert_attempts(events)
+	_assert_trial_result_contract(
+		str(first["results_directory"]).path_join("trial_results.csv")
+	)
 
 	_test_interruption_recovery()
 	_finish()
@@ -244,6 +250,28 @@ func _assert_attempts(events: Array[Dictionary]) -> void:
 	_expect(trial_ids.size() == 6, "expected six unique trial IDs")
 	for expected: int in range(1, 7):
 		_expect(attempts.has(expected), "level_attempt_index missing: %d" % expected)
+
+func _assert_trial_result_contract(path: String) -> void:
+	var rows: Array[Dictionary] = _read_csv_checked(path)
+	_expect(not rows.is_empty(), "trial_results.csv unreadable")
+	var quit_row: Dictionary = {}
+	for row: Dictionary in rows:
+		_expect(row.get("dyad_id") == "S1-D001", "trial identity missing")
+		_expect(row.has("mean_render_fps"), "trial quality fields missing")
+		_expect(row.has("perturbation_count"), "trial perturbation summary missing")
+		if row.get("outcome") == "quit":
+			quit_row = row
+	_expect(not quit_row.is_empty(), "quit trial missing from main table")
+	if not quit_row.is_empty():
+		_expect(
+			quit_row.get("quit_reason") == "level_select_requested",
+			"quit_reason was not preserved",
+		)
+		for field: String in [
+			"direction_cosine_mean", "intensity_difference_mean",
+			"route_correction_integral_A",
+		]:
+			_expect(str(quit_row.get(field, "")).is_empty(), "%s must be blank for quit" % field)
 
 func _test_interruption_recovery() -> void:
 	var user_dir: DirAccess = DirAccess.open("user://")

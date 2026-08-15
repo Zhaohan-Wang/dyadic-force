@@ -9,7 +9,7 @@ const QC_FOLDER: String = "qc"
 
 const IDENTITY_COLUMNS: PackedStringArray = [
 	"dyad_id", "participant_A", "participant_B", "relation_condition",
-	"started_utc", "session_dir",
+	"side_assignment", "started_utc", "session_dir",
 ]
 
 const SESSION_INDEX_EXTRA: PackedStringArray = [
@@ -165,7 +165,9 @@ func aggregate(
 			report["counts"][spec["key"]] = 0
 			continue
 		var columns: PackedStringArray = IDENTITY_COLUMNS.duplicate()
-		columns.append_array(spec["columns"])
+		for column: String in spec["columns"]:
+			if not columns.has(column):
+				columns.append(column)
 		if not _write_csv(out_path.path_join(str(spec["out"])), columns, combined):
 			report["errors"].append("failed to write %s" % spec["out"])
 			_write_report(out_path, report)
@@ -244,6 +246,7 @@ func _inspect_session(session_dir: String, reanalyze_missing: bool, dyad_filter:
 		"participant_A": session.get("participant_A", ""),
 		"participant_B": session.get("participant_B", ""),
 		"relation_condition": session.get("relation_condition", ""),
+		"side_assignment": session.get("side_assignment", ""),
 		"started_utc": session.get("started_utc", ""),
 		"session_dir": session_dir,
 	}

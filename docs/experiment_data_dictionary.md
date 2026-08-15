@@ -1,6 +1,6 @@
 # 实验数据字典
 
-本文档对应原始 schema `3.1.0` 与分析版本 `2.0.0`。当前现场流程是单次可行性预实验（协议 `pilot-1.0`），详见 [预实验 SOP](pilot_experiment_protocol.md)。
+本文档对应原始 schema `3.1.0` 与分析版本 `2.1.0`。当前现场流程是单次可行性预实验（协议 `pilot-1.0`），详见 [预实验 SOP](pilot_experiment_protocol.md)。
 
 一组实验（一次应用运行）只产生两类文件：
 
@@ -30,7 +30,7 @@
 | 字段 | 类型 / 单位 | 定义 |
 |---|---|---|
 | `schema_version` | 字符串 | 原始表结构版本，当前为 `3.1.0`。 |
-| `analysis_version` | 字符串 | 结果算法版本，当前为 `2.0.0`。 |
+| `analysis_version` | 字符串 | 结果算法版本，当前为 `2.1.0`。 |
 | `session_id` | 字符串 | 一次应用运行的唯一 ID，格式 `<组号>_<UTC文件夹名>`，例如 `S1-D001_2026-08-15_032500Z`。 |
 | `trial_id` | 字符串 | 每次关卡启动的唯一 ID，格式 `<session>-T####`。 |
 | `life_id` | 字符串 | trial 内生命 ID，格式 `<trial>-L###`；死亡重生递增，死亡不新建 trial。 |
@@ -197,8 +197,16 @@ READY/RUNNING 阶段每个物理帧至多一行，A/B 按参与者而不是设�
 | 字段 | 层级 | 单位 / 枚举 | 定义或公式 |
 |---|---|---|---|
 | `analysis_version`, `session_id`, `trial_id`, `level_id`, `level_attempt_index`, `protocol_version` | 键 | — | 版本与键。 |
+| `dyad_id`, `participant_A`, `participant_B`, `relation_condition`, `side_assignment` | 条件 | — | 从 `session.csv` 冗余到试次主表，便于直接建模；值的定义与 session 表相同。 |
 | `outcome` | 核心 | 枚举 | 最后一个 `trial_end.outcome`；缺失时 `incomplete`。重开/退出看这里，不再单独计数。 |
+| `quit_reason` | 核心 | 枚举/空 | 仅 `outcome=quit` 有值：`controller_disconnected`（退出时仍断连）、`level_select_requested`、`level_tree_exit` 或 `unspecified`。 |
 | `completion_time_ms` | 核心 | ms/空 | `trial_duration_ms - run_start_ms`；缺少 `run_start` 时为空。 |
+| `perturbation_count`, `perturbed_participants` | 核心 | 次；枚举 | 本试次真实扰动次数；受扰者集合为 `none`、`A`、`B` 或 `A;B`。一关可有多次扰动，因此不使用误导性的单数 `perturbed_player`。 |
+| `perturb_gain_mean`, `perturb_first_onset_ms`, `perturb_last_offset_ms` | 核心 | 比例；ms | 本试次扰动增益均值及首个开始、最后结束时间；无扰动时为空。 |
+| `compensation_valid_count`, `compensation_reaction_median_ms` | 核心 | 次；ms/空 | 有效补偿次数，以及有效事件的补偿反应时中位数。 |
+| `recovery_recovered_count`, `recovery_censored_count` | 核心 | 次 | 已恢复与右删失事件数。 |
+| `recovery_time_median_ms`, `recovery_observation_max_ms` | 核心 | ms/空 | 已恢复事件的恢复时间中位数；全部事件（包括删失事件）的最大观察上限。 |
+| `overcompensation_count`, `overcompensation_index_max` | 核心 | 次；比例/空 | 出现反侧过冲的事件数，以及最大过度补偿指数。 |
 | `direction_cosine_mean`, `direction_cosine_median` | 核心 | [-1,1] | 双方幅度均大于 0.20 时，`F_A·F_B/(|F_A||F_B|)` 的均值/中位数。 |
 | `conflict_ratio` | 核心 | [0,1]/空 | 同时活动且余弦 `< -0.50` 的时长 / 同时活动时长。分母为 0 时为空。 |
 | `startup_difference_ms` | 核心 | ms/空 | `B_start_ms - A_start_ms`；正数表示 A 先启动。 |
@@ -208,6 +216,13 @@ READY/RUNNING 阶段每个物理帧至多一行，A/B 按参与者而不是设�
 | `mean_route_error` | 核心 | px | 路线绝对误差均值。 |
 | `max_progress` | 核心 | [0,1] | 最大 `route_max_progress`。 |
 | `trial_duration_ms` | 质量 | ms | frames/events 中最大 `trial_elapsed_ms`。 |
+| `mean_render_fps` | 质量 | Hz/空 | 有效 `render_fps` 帧的算术均值。 |
+| `mean_physics_delta_ms` | 质量 | ms/空 | 本试次物理帧步长均值。 |
+| `effective_sample_hz` | 质量 | Hz/空 | `frames 行数 / physics_delta_s 总和`。 |
+| `late_frame_pct` | 质量 | %/空 | `physics_delta_s > 标称步长×1.5` 的帧占比。 |
+| `estimated_frame_drop_pct` | 质量 | %/空 | 按每帧步长相对标称物理步长估算的漏采 tick 比例。 |
+| `disconnected_frame_pct`, `controller_disconnect_count` | 质量 | %；次 | 任一参与者断连的帧占比与断连事件数。 |
+| `quality_flag` | 质量 | 枚举列表 | `ok`，或分号连接的 `no_frame_data`、`low_sample_rate`、`high_frame_drop`、`controller_disconnected`。当前阈值为 `<55 Hz`、丢帧 `>5%`。 |
 | `direction_valid_ms` | 质量 | ms | 方向余弦有效帧的 `physics_delta_s` 总和。 |
 | `simultaneous_active_ms` | 质量 | ms | 双方同时超过活动阈值的时长。 |
 | `xcorr_status` | 质量 | 枚举 | `ok` 或 `low_activity`。 |
@@ -217,10 +232,13 @@ READY/RUNNING 阶段每个物理帧至多一行，A/B 按参与者而不是设�
 | `xcorr_peak` | 探索 | [-1,1]/空 | 峰值的带符号相关。 |
 | `xcorr_leader` | 探索 | 枚举 | `A`、`B`、`ambiguous`。 |
 | `xcorr_confidence` | 探索 | [0,1] | 峰强度与第一/第二峰分离度的组合评分。 |
-| `correction_A`, `correction_B` | 探索 | 归一化力·ms | 误差至少 2 px 时，各自沿 `-error` 正投影的时间积分。 |
+| `route_correction_exposure_ms` | 探索 | ms/空 | 路线误差至少 2 px、纠偏积分实际暴露的时长。无暴露时为空。 |
+| `route_correction_integral_A`, `route_correction_integral_B` | 探索 | 归一化力·ms/空 | 暴露期间各自沿 `-error` 正投影的时间积分。它表示全试次路线纠偏贡献，不是扰动后的补偿反应时间。 |
 | `p95_route_error`, `max_route_error` | 探索 | px | 路线绝对误差分位与最大。 |
 | `outside_boundary_ms` | 探索 | ms | `inside_boundary=0` 帧的步长总和。 |
 | `route_length` | 探索 | px | 连续核心坐标间欧氏距离总和。 |
+
+`quit`、`aborted`、`incomplete`、`restarted` 试次的行为派生指标统一写空值，不用 `0` 占位。身份、结局、退出原因、事件计数、试次时长和系统质量字段仍保留，用于审计和排除判断。扰动专项表中的删失事件也保留，因为它们是有效的右删失观察。
 
 不要使用：单 session 二次汇总表。组间比较请用 `_aggregate/trials.csv` 或 `dyads.csv`。
 
@@ -241,12 +259,13 @@ READY/RUNNING 阶段每个物理帧至多一行，A/B 按参与者而不是设�
 | `compensation_reaction_ms` | 核心 | ms/空 | `compensation_onset_ms - onset_ms`。 |
 | `recovery_status` | 核心 | 枚举 | `recovered`、`censored`、`not_eligible`。 |
 | `recovery_time_ms` | 核心 | ms/空 | 误差、速度、角速度均回到扰动前中位数 ± `max(协议下限, 3×MAD)` 并持续 500 ms 的稳定段起点相对 onset。 |
+| `recovery_stable_time_ms` | 核心 | ms/空 | 供生存/删失分析直接读取：已恢复时等于 `recovery_time_ms`；未恢复时写最后观察上限，并由 `recovery_censored=1` 标记右删失；仅 `not_eligible` 为空。 |
 | `recovery_censored` | 质量 | 0/1 | trial 结束前未确认 500 ms 稳定则为 1。 |
 | `recovery_observation_ms` | 质量 | ms | 实际观察上限；恢复时为确认稳定的时点，删失时为最后观测。 |
 | `compensation_peak_projection` | 探索 | 归一化力/空 | 观察期最大 `ΔF·(-error_unit)/force_max`。 |
 | `overshoot_status` | 探索 | 枚举 | `overshoot`、`none`、`not_eligible`。初始有符号误差小于 2 px 不适用。 |
 | `overshoot_first_reverse_max` | 探索 | px/空 | 首次到达反侧后观测到的最大反向绝对误差。 |
-| `overshoot_ratio` | 探索 | 比例/空 | `first_reverse_max / abs(扰动前有符号误差中位数)`。 |
+| `overcompensation_index` | 探索 | 比例/空 | `first_reverse_max / abs(扰动前有符号误差中位数)`；即过度补偿指数。 |
 | `overshoot_round_trips` | 探索 | 次 | 使用 2 px 滞回检测的跨侧次数整除 2。 |
 
 #### 4.2.2 `gate_results.csv`
@@ -318,7 +337,7 @@ godot --headless --path . --script res://tools/aggregate_experiments.gd -- \
 
 规则：
 
-- 只纳入 schema `3.1.0` 且 analysis `2.0.0` 的 session。
+- 只纳入 schema `3.1.0` 且 analysis `2.1.0` 的 session。
 - 版本不一致时拒绝静默混合，只写报告。
 - 主键必须唯一：`session_id`、`trial_id`、`perturbation_id`，以及组件表的复合键。
 - `monotonic_time_us` 不可跨 session 比较；跨组分析用 `started_utc` 与 `trial_elapsed_ms`。
