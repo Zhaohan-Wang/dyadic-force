@@ -17,12 +17,12 @@
 
 - **练习关**：教程提示、无限时
 - **正式关**：限时、生命值、终点判定、星级结算
-- **预实验编号**：研究员只填组号数字；系统生成 `D001` / `D001-A` / `D001-B`。A/B 是稳定身份，左右屏由组号奇偶分配，可覆盖。
+- **预实验编号**：每台电脑永久保存本站编号；研究员只填组内数字并选择陌生人/朋友，系统生成 `S1-D001` / `S1-D001-A` / `S1-D001-B`，左右屏按组号奇偶分配。
 - **单一协议**：无全局 Baseline/Perturbation 分组。第 3 关记录正常协调，第 4 关固定真实干扰，用干扰前局部基线算补偿与恢复。两关不能包装成严格对照。正式实验需另行冻结设计。
 
 开启实验模式后，数据写入游戏可写目录：
 
-`user://experiments/dyad-D001/<UTC时间>/raw|results/`
+`user://experiments/dyad-S1-D001/<UTC时间>/raw|results/`
 
 - `raw/`：过程记录（`session.csv` / `frames.csv` / `events.csv`），不可覆盖
 - `results/`：有数据才写出的结果表；默认不生成人工复核文件
@@ -33,7 +33,7 @@
 ## 文档
 
 - [五关扩展需求](docs/five_level_expansion_requirements.md)：五个正式关的设计约束、组件、日志与验收标准。
-- [预实验 SOP](docs/pilot_experiment_protocol.md)：单次可行性预实验、现场怎么用、`D001` 编号、质量门槛。
+- [预实验 SOP](docs/pilot_experiment_protocol.md)：单次可行性预实验、现场怎么用、采集站编号、质量门槛。
 - [现场记录表](docs/pilot_field_log.md)：每组一张，同意映射与访谈写在游戏外。
 - [实验数据字典](docs/experiment_data_dictionary.md)：过程表（schema `3.1.0`）、按需结果表、复核与跨组汇总。
 

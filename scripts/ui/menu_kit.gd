@@ -22,11 +22,22 @@ const COL_GRASS_A: Color = Color("74a648")
 const COL_GRASS_B: Color = Color("6c9c42")
 
 # ---------- 纹理与图集坐标 ----------
+## 世界提示与装饰性英文：保留 Sprout Lands 窄像素字体。
 static var _font: FontFile = preload("res://assets/ui/pixel_font_sprout.ttf")
 ## 标题专用粗像素字体（Press Start 2P，SIL OFL 授权，8x8 网格设计）
 static var _font_title: FontFile = preload("res://assets/ui/press_start_2p.ttf")
 ## 中文像素字体（IPix 12px）；中文正文与中文按钮统一从这里取字形。
 static var _font_cjk: FontFile = preload("res://assets/ui/ipix_12px.ttf")
+## 英文正文：高辨识度等宽字体，避免小字号继续使用装饰性像素字。
+static var _font_body: FontFile = preload(
+	"res://assets/ui/atkinson_hyperlegible_mono_regular.ttf"
+)
+## 编号、数值与虚拟键盘：粗体且默认使用斜线零，明确区分 0 / O / D。
+static var _font_data: FontFile = preload(
+	"res://assets/ui/atkinson_hyperlegible_mono_bold.ttf"
+)
+## 短英文操作按钮：用户提供的 Boxy Bold，仅用于非数据型展示文字。
+static var _font_display: FontFile = preload("res://assets/ui/boxy_bold.ttf")
 ## 品牌副标题专用字重变体：中英文都用 IPix，并通过 embolden 增厚笔画。
 static var _font_subtitle_bold: FontVariation = null
 static var _tex_panel_src: Texture2D = preload("res://assets/ui/sprout_panel.png")
@@ -175,15 +186,51 @@ const PIXEL_ICONS: Dictionary = {
 		"................",
 		"................",
 	],
+	"clear": [
+		"................",
+		".....XXXXXX.....",
+		"....XXXXXXXX....",
+		"...XXXXXXXXXX...",
+		"...XX......XX...",
+		"..XXXXXXXXXXXX..",
+		"...XXXXXXXXXX...",
+		"...XX.XX.XX.X...",
+		"...XX.XX.XX.X...",
+		"...XX.XX.XX.X...",
+		"...XX.XX.XX.X...",
+		"...XX.XX.XX.X...",
+		"...XXXXXXXXXX...",
+		"....XXXXXXXX....",
+		"................",
+		"................",
+	],
 }
 
 # ---------- 字体 ----------
 
-## 配置像素字体（关抗锯齿；字号请用 14 的整数倍保证像素对齐）
+## 配置世界提示用像素字体（关抗锯齿；字号请用 14 的整数倍保证像素对齐）
 static func prepare_font() -> FontFile:
 	_font.antialiasing = TextServer.FONT_ANTIALIASING_NONE
 	_font.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_DISABLED
 	return _font
+
+## 英文正文优先可读性；保留灰阶抗锯齿，避免非网格字号出现断笔。
+static func prepare_body_font() -> FontFile:
+	_font_body.antialiasing = TextServer.FONT_ANTIALIASING_GRAY
+	_font_body.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_AUTO
+	return _font_body
+
+## 数据专用粗体：等宽、斜线零，用于 ID、键盘和统计值。
+static func prepare_data_font() -> FontFile:
+	_font_data.antialiasing = TextServer.FONT_ANTIALIASING_GRAY
+	_font_data.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_AUTO
+	return _font_data
+
+## 短操作词专用展示字体；不可用于编号（其 0/O 轮廓相近）。
+static func prepare_display_font() -> FontFile:
+	_font_display.antialiasing = TextServer.FONT_ANTIALIASING_NONE
+	_font_display.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_DISABLED
+	return _font_display
 
 ## 配置中文像素字体。
 static func prepare_cjk_font() -> FontFile:
@@ -207,11 +254,17 @@ static func _contains_cjk(text: String) -> bool:
 			return true
 	return false
 
-## 中文统一使用加粗 IPix；英文正文和英文大标题保留原来的像素字体。
+## 中文统一使用加粗 IPix；英文正文改用高辨识度 Atkinson。
 static func _font_for_text(text: String, title: bool = false) -> Font:
 	if _contains_cjk(text):
 		return prepare_subtitle_font()
-	return prepare_title_font() if title else prepare_font()
+	return prepare_title_font() if title else prepare_body_font()
+
+static func _world_font_for_text(text: String) -> Font:
+	return prepare_subtitle_font() if _contains_cjk(text) else prepare_font()
+
+static func _display_font_for_text(text: String) -> Font:
+	return prepare_subtitle_font() if _contains_cjk(text) else prepare_display_font()
 
 ## 创建 LabelSettings；outline_px<0 时按字号自动配描边
 static func label_settings(
@@ -334,7 +387,7 @@ static func make_brand_subtitle(text: String, size: int = 44) -> Control:
 ## 创建无描边、无阴影的世界文字字面设置。
 static func _pixel_outline_settings(text: String, size: int, color: Color) -> LabelSettings:
 	var settings: LabelSettings = LabelSettings.new()
-	settings.font = _font_for_text(text)
+	settings.font = _world_font_for_text(text)
 	settings.font_size = size
 	settings.font_color = color
 	settings.outline_size = 0
@@ -515,7 +568,7 @@ static func make_big_button(text: String, font_px: int = 28, min_size: Vector2 =
 	btn.add_theme_stylebox_override("focus", _btn_stylebox(_tex_btn_normal))
 	btn.add_theme_stylebox_override("pressed", _btn_stylebox(_tex_btn_pressed))
 	btn.add_theme_stylebox_override("disabled", _btn_stylebox(_tex_btn_pressed))
-	btn.add_theme_font_override("font", _font_for_text(text))
+	btn.add_theme_font_override("font", _display_font_for_text(text))
 	btn.add_theme_font_size_override("font_size", font_px)
 	btn.add_theme_color_override("font_color", COL_INK)
 	btn.add_theme_color_override("font_hover_color", COL_ACCENT)
@@ -562,7 +615,10 @@ static func make_compact_button(text: String, min_size: Vector2 = Vector2(160, 5
 	var spring: UiSpring = UiSpring.attach(button, 0.35, 0.3)
 	button.focus_entered.connect(func() -> void: spring.set_scale_target(1.06))
 	button.focus_exited.connect(func() -> void: spring.set_scale_target(1.0))
-	button.mouse_entered.connect(func() -> void: button.grab_focus())
+	button.mouse_entered.connect(func() -> void:
+		if not button.disabled:
+			button.grab_focus()
+	)
 	return button
 
 ## 方块勾选/图标按钮用的九宫格 StyleBox（像素圆角）
@@ -671,6 +727,17 @@ static func make_button_icon(icon_name: String, icon_scale: int = 2, color: Colo
 				img.set_pixel(x, y, color)
 	img.resize(16 * icon_scale, 16 * icon_scale, Image.INTERPOLATE_NEAREST)
 	return ImageTexture.create_from_image(img)
+
+## 返回可直接用于 Button.icon 的等倍像素图标纹理。
+static func make_ui_icon_texture(name: String, icon_scale: int = 2) -> Texture2D:
+	var region: Rect2 = ICON_REGIONS.get(name, ICON_REGIONS["star_dark"]) as Rect2
+	var image: Image = _tex_icons.get_image().get_region(Rect2i(region))
+	image.resize(
+		int(region.size.x) * icon_scale,
+		int(region.size.y) * icon_scale,
+		Image.INTERPOLATE_NEAREST,
+	)
+	return ImageTexture.create_from_image(image)
 
 ## Sprout 图标：见 ICON_REGIONS 键名
 static func make_icon(name: String, px: float = 48.0) -> TextureRect:

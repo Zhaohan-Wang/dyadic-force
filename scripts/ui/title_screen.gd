@@ -151,10 +151,10 @@ func _open_settings() -> void:
 	add_child(_settings_layer)
 	_settings_layer.add_child(MenuKit.make_dim_overlay())
 
-	var panel: NinePatchRect = MenuKit.make_panel(Vector2(620, 760))
+	var panel: NinePatchRect = MenuKit.make_panel(Vector2(620, 860))
 	panel.set_anchors_preset(Control.PRESET_CENTER)
-	panel.position = Vector2(-310, -380)
-	panel.size = Vector2(620, 760)
+	panel.position = Vector2(-310, -430)
+	panel.size = Vector2(620, 860)
 	_settings_layer.add_child(panel)
 	UiSpring.attach(panel, 0.45, 0.3).pop_in(0.0)
 
@@ -175,6 +175,9 @@ func _open_settings() -> void:
 
 	var language_row: Control = _make_language_row()
 	box.add_child(language_row)
+
+	var station_row: Control = _make_station_row()
+	box.add_child(station_row)
 
 	var shake_row: Control = _make_toggle_row(GameState.ui("画面震动", "SCREEN SHAKE"), GameState.shake_enabled,
 		func(on: bool) -> void:
@@ -238,6 +241,77 @@ func _toggle_language() -> void:
 	)
 	GameState.set_language(next)
 	_rebuild_for_language.call_deferred()
+
+## 本机采集站只在设置中配置一次，之后自动写入所有实验组号。
+func _make_station_row() -> Control:
+	var row: HBoxContainer = HBoxContainer.new()
+	row.name = "StationSetting"
+	row.custom_minimum_size = Vector2(0, 82)
+	row.add_theme_constant_override("separation", 12)
+	var label: Label = MenuKit.make_label(
+		GameState.ui("本站编号", "STATION ID"), 28, MenuKit.COL_INK, 0
+	)
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(label)
+
+	var minus: Button = MenuKit.make_compact_button("-", Vector2(84, 72))
+	minus.name = "StationMinus"
+	minus.tooltip_text = GameState.ui("上一采集站", "PREVIOUS STATION")
+	_apply_station_pixel_font(minus, 36)
+	row.add_child(minus)
+
+	var value_panel: PanelContainer = PanelContainer.new()
+	value_panel.name = "StationValuePanel"
+	value_panel.custom_minimum_size = Vector2(118, 72)
+	value_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var value_style: StyleBoxFlat = StyleBoxFlat.new()
+	value_style.bg_color = Color("f3e2c0")
+	value_style.border_color = MenuKit.COL_OUTLINE
+	value_style.set_border_width_all(4)
+	value_style.set_corner_radius_all(6)
+	value_panel.add_theme_stylebox_override("panel", value_style)
+	var value: Label = MenuKit.make_label("S%d" % GameState.station_number, 32, MenuKit.COL_INK, 0)
+	value.name = "StationValue"
+	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_apply_station_pixel_font(value, 32)
+	value_panel.add_child(value)
+	row.add_child(value_panel)
+
+	var plus: Button = MenuKit.make_compact_button("+", Vector2(84, 72))
+	plus.name = "StationPlus"
+	plus.tooltip_text = GameState.ui("下一采集站", "NEXT STATION")
+	_apply_station_pixel_font(plus, 36)
+	row.add_child(plus)
+
+	var refresh: Callable = func() -> void:
+		GameState.station_number = maxi(1, GameState.station_number)
+		value.text = "S%d" % GameState.station_number
+		minus.disabled = GameState.station_number <= 1
+		GameState.save_settings()
+	minus.pressed.connect(func() -> void:
+		GameState.station_number -= 1
+		refresh.call()
+	)
+	plus.pressed.connect(func() -> void:
+		GameState.station_number += 1
+		refresh.call()
+	)
+	minus.disabled = GameState.station_number <= 1
+	return row
+
+## 本站编号是短展示字，必须走无抗锯齿的 Boxy Bold；LabelSettings 会盖掉 theme font。
+func _apply_station_pixel_font(control: Control, size: int) -> void:
+	var font: Font = MenuKit.prepare_display_font()
+	control.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var label: Label = control as Label
+	if label != null and label.label_settings != null:
+		label.label_settings.font = font
+		label.label_settings.font_size = size
+		return
+	control.add_theme_font_override("font", font)
+	control.add_theme_font_size_override("font_size", size)
 
 ## 手柄震动强度：提供关闭与三档强度，兼顾可访问性和不同硬件差异。
 func _make_haptic_row() -> Control:

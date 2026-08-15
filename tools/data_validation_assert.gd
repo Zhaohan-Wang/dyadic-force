@@ -115,9 +115,9 @@ func _run() -> void:
 
 func _prepare_identity() -> void:
 	_game_state.set("experiment_mode", true)
-	_game_state.set("dyad_id", "D001")
-	_game_state.set("participant_A", "D001-A")
-	_game_state.set("participant_B", "D001-B")
+	_game_state.set("dyad_id", "S1-D001")
+	_game_state.set("participant_A", "S1-D001-A")
+	_game_state.set("participant_B", "S1-D001-B")
 	_game_state.set("relation_condition", "friends")
 	_game_state.set("protocol_version", "pilot-1.0")
 	_game_state.set("participant_a_slot", 0)

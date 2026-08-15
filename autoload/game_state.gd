@@ -13,7 +13,7 @@ var last_result: Dictionary = {}
 var dyad_id: String = ""
 var participant_A: String = ""
 var participant_B: String = ""
-## 关系条件：unspecified / strangers / friends / partners。正式锁定不得为 unspecified。
+## 关系条件：unspecified / strangers / friends。正式锁定必须二选一。
 var relation_condition: String = "unspecified"
 ## 单一标准协议版本；不再使用全局 Baseline/Perturbation 分组。
 var protocol_version: String = "pilot-1.0"
@@ -38,6 +38,8 @@ var language: String = "zh"
 var experiment_mode: bool = false
 ## 调试模式：选关页教学关下显示物理滑条；默认关闭。
 var debug_mode: bool = false
+## 本机的持久化采集站编号；所有新组号自动带入，不在录入页重复选择。
+var station_number: int = 1
 
 ## 已通关的关卡 ID 列表
 var cleared_levels: PackedStringArray = PackedStringArray()
@@ -48,17 +50,15 @@ const LANGUAGE_ZH: String = "zh"
 const LANGUAGE_EN: String = "en"
 const ID_MAX_LENGTH: int = 16
 const PROTOCOL_VERSION: String = "pilot-1.0"
-const ID_ALLOWED: String = "0123456789DAB-"
+const ID_ALLOWED: String = "0123456789SDAB-"
 const RELATION_CONDITIONS: PackedStringArray = [
 	"unspecified",
 	"strangers",
 	"friends",
-	"partners",
 ]
 const LOCKABLE_RELATIONS: PackedStringArray = [
 	"strangers",
 	"friends",
-	"partners",
 ]
 
 ## 关卡资源继续保存稳定的英文实验文本，界面显示时按当前语言映射。
@@ -126,7 +126,7 @@ func pairing_back_scene() -> String:
 		return "res://scenes/experiment_setup_screen.tscn"
 	return "res://scenes/title_screen.tscn"
 
-## 只保留去标识编号允许的字符：数字、D/A/B 与连字符。
+## 只保留去标识编号允许的字符：数字、S/D/A/B 与连字符。
 func sanitize_experiment_id(raw_value: String) -> String:
 	var result: String = ""
 	for index: int in raw_value.length():
@@ -141,17 +141,40 @@ func sanitize_experiment_id(raw_value: String) -> String:
 		result = result.substr(0, result.length() - 1)
 	return result
 
-## 组号规范为 D + 至少三位数字，例如 1 / 01 / D001 → D001。
+## 唯一组号规范为 S<本站编号>-D<组内序号>；录入页只传入数字。
 func normalize_dyad_id(raw_value: String) -> String:
-	var digits: String = _digits_only(raw_value)
-	if digits.is_empty():
+	var clean: String = raw_value.strip_edges().to_upper()
+	if clean.is_empty():
 		return ""
-	var number: int = digits.to_int()
-	if number <= 0:
+	var sequence: String = clean
+	var parsed_station: int = station_number
+	if clean.begins_with("S"):
+		var separator_index: int = clean.find("-D")
+		if separator_index <= 1:
+			return ""
+		var station_digits: String = clean.substr(1, separator_index - 1)
+		sequence = clean.substr(separator_index + 2)
+		if not _is_positive_digit_string(station_digits):
+			return ""
+		parsed_station = station_digits.to_int()
+	for index: int in sequence.length():
+		var character: String = sequence.substr(index, 1)
+		if character < "0" or character > "9":
+			return ""
+	if not _is_positive_digit_string(sequence):
 		return ""
-	return "D%03d" % number
+	return "S%d-D%03d" % [parsed_station, sequence.to_int()]
 
-## 由组号派生稳定参与者编号：D001-A / D001-B。
+func _is_positive_digit_string(value: String) -> bool:
+	if value.is_empty():
+		return false
+	for index: int in value.length():
+		var character: String = value.substr(index, 1)
+		if character < "0" or character > "9":
+			return false
+	return value.to_int() > 0
+
+## 由组号派生稳定参与者编号，例如 S1-D001-A / S1-D001-B。
 func default_participant_id(raw_dyad: String, letter: String) -> String:
 	var dyad: String = normalize_dyad_id(raw_dyad)
 	var tag: String = letter.to_upper()
@@ -161,7 +184,9 @@ func default_participant_id(raw_dyad: String, letter: String) -> String:
 
 ## 奇数 A=P1，偶数 A=P2。无法解析时默认 A=P1。
 func default_a_slot_for_dyad(raw_dyad: String) -> int:
-	var digits: String = _digits_only(raw_dyad)
+	var canonical: String = normalize_dyad_id(raw_dyad)
+	var d_index: int = canonical.rfind("D")
+	var digits: String = canonical.substr(d_index + 1) if d_index >= 0 else ""
 	if digits.is_empty():
 		return 0
 	return 0 if digits.to_int() % 2 == 1 else 1
@@ -169,33 +194,17 @@ func default_a_slot_for_dyad(raw_dyad: String) -> int:
 func is_default_participant_id(raw_dyad: String, raw_participant: String, letter: String) -> bool:
 	return sanitize_experiment_id(raw_participant) == default_participant_id(raw_dyad, letter)
 
-## 校验并锁定实验信息；成功后本次运行中只能由 Setup 页重新录入。
-func lock_experiment_setup(
-	next_dyad_id: String,
-	next_participant_a: String,
-	next_participant_b: String,
-	next_relation: String,
-	next_a_slot: int,
-) -> bool:
+## 校验并锁定实验信息。参与者编号与侧别只由组号生成，不能手工覆盖。
+func lock_experiment_setup(next_dyad_id: String, next_relation: String) -> bool:
 	var clean_dyad: String = normalize_dyad_id(next_dyad_id)
-	var clean_a: String = sanitize_experiment_id(next_participant_a)
-	var clean_b: String = sanitize_experiment_id(next_participant_b)
-	if clean_a.is_empty():
-		clean_a = default_participant_id(clean_dyad, "A")
-	if clean_b.is_empty():
-		clean_b = default_participant_id(clean_dyad, "B")
-	if clean_dyad.is_empty() or clean_a.is_empty() or clean_b.is_empty():
-		return false
-	if clean_a == clean_b:
-		return false
-	if not LOCKABLE_RELATIONS.has(next_relation):
+	if clean_dyad.is_empty() or not LOCKABLE_RELATIONS.has(next_relation):
 		return false
 	dyad_id = clean_dyad
-	participant_A = clean_a
-	participant_B = clean_b
+	participant_A = default_participant_id(clean_dyad, "A")
+	participant_B = default_participant_id(clean_dyad, "B")
 	relation_condition = next_relation
 	protocol_version = PROTOCOL_VERSION
-	participant_a_slot = clampi(next_a_slot, 0, 1)
+	participant_a_slot = default_a_slot_for_dyad(clean_dyad)
 	side_assignment = "A=P1;B=P2" if participant_a_slot == 0 else "A=P2;B=P1"
 	experiment_setup_locked = true
 	return true
@@ -247,6 +256,7 @@ func load_settings() -> void:
 		language = LANGUAGE_ZH
 	experiment_mode = bool(cfg.get_value("modes", "experiment_mode", false))
 	debug_mode = bool(cfg.get_value("modes", "debug_mode", false))
+	station_number = maxi(1, int(cfg.get_value("experiment", "station_number", 1)))
 
 ## 保存设置到磁盘
 func save_settings() -> void:
@@ -258,6 +268,7 @@ func save_settings() -> void:
 	cfg.set_value("general", "language", language)
 	cfg.set_value("modes", "experiment_mode", experiment_mode)
 	cfg.set_value("modes", "debug_mode", debug_mode)
+	cfg.set_value("experiment", "station_number", maxi(1, station_number))
 	cfg.save(SETTINGS_PATH)
 	settings_changed.emit()
 

@@ -13,7 +13,7 @@ func _initialize() -> void:
 func _run() -> void:
 	_reset_root()
 	var first: Dictionary = _write_session(
-		"D001",
+		"S1-D001",
 		"2026-08-15_000001Z",
 		"pilot-1.0",
 		[
@@ -22,7 +22,7 @@ func _run() -> void:
 		]
 	)
 	var second: Dictionary = _write_session(
-		"D002",
+		"S1-D002",
 		"2026-08-15_000002Z",
 		"pilot-1.0",
 		[{"trial": "T0001", "level": "gate_run", "perturb": false, "gate": true}]

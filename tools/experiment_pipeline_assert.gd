@@ -70,9 +70,9 @@ func _test_session_lifecycle() -> void:
 	var game_state: Node = root.get_node_or_null("GameState")
 	if game_state != null:
 		game_state.set("experiment_mode", true)
-		game_state.set("dyad_id", "D009")
-		game_state.set("participant_A", "D009-A")
-		game_state.set("participant_B", "D009-B")
+		game_state.set("dyad_id", "S1-D009")
+		game_state.set("participant_A", "S1-D009-A")
+		game_state.set("participant_B", "S1-D009-B")
 		game_state.set("relation_condition", "friends")
 		game_state.set("protocol_version", "pilot-1.0")
 		game_state.set("experiment_setup_locked", true)

@@ -72,11 +72,31 @@ func _run() -> void:
 				page.call("_open_settings")
 				await get_tree().process_frame
 				await get_tree().process_frame
+				var station_minus: Button = page.find_child("StationMinus", true, false) as Button
+				var station_plus: Button = page.find_child("StationPlus", true, false) as Button
+				var station_value: PanelContainer = (
+					page.find_child("StationValuePanel", true, false) as PanelContainer
+				)
+				var station_id: Label = page.find_child("StationValue", true, false) as Label
+				_expect(
+					station_minus != null
+					and station_plus != null
+					and station_value != null
+					and station_id != null
+					and station_minus.custom_minimum_size.x >= 84.0
+					and station_plus.get_theme_font("font") == MenuKit.prepare_display_font()
+					and station_plus.get_theme_font_size("font_size") >= 36
+					and station_id.label_settings != null
+					and station_id.label_settings.font == MenuKit.prepare_display_font(),
+					"station control must use the pixel display font at a readable size",
+				)
 			var visible_text: String = _collect_text(page)
 			if language == "zh":
 				_assert_zh_page(page_path, visible_text)
 				if page_path == "res://scenes/title_screen.tscn":
 					_expect(visible_text.contains("手柄震动"), "haptic setting is not Chinese")
+					_expect(visible_text.contains("本站编号"), "station setting is not Chinese")
+					_expect(page.find_child("StationPlus", true, false) != null, "station controls missing")
 			else:
 				_expect(
 					visible_text.contains(EN_REQUIRED[page_path]),
@@ -87,6 +107,7 @@ func _run() -> void:
 						visible_text.contains("CONTROLLER VIBRATION"),
 						"haptic setting is not English",
 					)
+					_expect(visible_text.contains("STATION ID"), "station setting is not English")
 			page.queue_free()
 			await get_tree().process_frame
 
@@ -106,9 +127,9 @@ func _run() -> void:
 	get_tree().quit(0)
 
 func _prepare_result(game_state: Node) -> void:
-	game_state.set("dyad_id", "D001")
-	game_state.set("participant_A", "A001")
-	game_state.set("participant_B", "B001")
+	game_state.set("dyad_id", "S1-D001")
+	game_state.set("participant_A", "S1-D001-A")
+	game_state.set("participant_B", "S1-D001-B")
 	game_state.set("relation_condition", "friends")
 	game_state.set("participant_a_slot", 0)
 	game_state.set("experiment_setup_locked", true)

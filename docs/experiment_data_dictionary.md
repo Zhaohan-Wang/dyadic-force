@@ -31,7 +31,7 @@
 |---|---|---|
 | `schema_version` | 字符串 | 原始表结构版本，当前为 `3.1.0`。 |
 | `analysis_version` | 字符串 | 结果算法版本，当前为 `2.0.0`。 |
-| `session_id` | 字符串 | 一次应用运行的唯一 ID，格式 `<组号>_<UTC文件夹名>`，例如 `D001_2026-08-15_032500Z`。 |
+| `session_id` | 字符串 | 一次应用运行的唯一 ID，格式 `<组号>_<UTC文件夹名>`，例如 `S1-D001_2026-08-15_032500Z`。 |
 | `trial_id` | 字符串 | 每次关卡启动的唯一 ID，格式 `<session>-T####`。 |
 | `life_id` | 字符串 | trial 内生命 ID，格式 `<trial>-L###`；死亡重生递增，死亡不新建 trial。 |
 | `level_id` | 字符串 | 稳定关卡标识。 |
@@ -55,11 +55,11 @@
 | `schema_version` | 字符串 | 见通用约定。 |
 | `app_version` | 字符串 | Godot 项目版本；开发构建未配置时为 `dev`。 |
 | `session_id` | 字符串 | 见通用约定。 |
-| `dyad_id` | 假名化编号 | 组号，规范为 `D` + 至少三位数字，例如 `D001`。输入 `1` / `01` / `D001` 效果相同。 |
-| `participant_A`, `participant_B` | 假名化编号 | 默认 `D001-A` / `D001-B`。A/B 是稳定身份，不随左右屏变化。不得填写姓名。 |
-| `relation_condition` | 枚举 | 正式数据仅为 `strangers`、`friends`、`partners`。`unspecified` 不能锁定。 |
+| `dyad_id` | 假名化编号 | 组号，规范为 `S<采集站>-D<至少三位序号>`，例如 `S1-D001`。研究员只输入数字 `1`，系统从永久保存的本站编号生成完整值。 |
+| `participant_A`, `participant_B` | 假名化编号 | 由组号自动生成 `S1-D001-A` / `S1-D001-B`。A/B 是稳定身份，不随左右屏变化。不得填写姓名。 |
+| `relation_condition` | 枚举 | 正式数据仅为 `strangers`、`friends`。`unspecified` 不能锁定。 |
 | `protocol_version` | 字符串 | 当前为 `pilot-1.0`。 |
-| `side_assignment` | 字符串 | `A=P1;B=P2` 或 `A=P2;B=P1`；P1=左屏/槽 0，P2=右屏/槽 1。 |
+| `side_assignment` | 字符串 | `A=P1;B=P2` 或 `A=P2;B=P1`；由组号奇偶自动写入。P1=左屏/槽 0，P2=右屏/槽 1。 |
 | `started_utc` | ISO 8601 UTC | 唯一用于审计的系统墙钟；不参与时差计算。 |
 | `platform` | 字符串 | `OS.get_name()`。 |
 | `deadzone` | 归一化幅度 | 输入死区阈值。 |
@@ -286,7 +286,7 @@ READY/RUNNING 阶段每个物理帧至多一行，A/B 按参与者而不是设�
 
 ```bash
 godot --headless --path . --script res://tools/generate_review_package.gd -- \
-  --session-dir "/absolute/path/to/experiments/dyad-D001/2026-08-15_032500Z"
+  --session-dir "/absolute/path/to/experiments/dyad-S1-D001/2026-08-15_032500Z"
 ```
 
 - `review_queue.csv`：按 `sha256(session_id|perturbation_id)` 稳定排序，抽取 `ceil(扰动数×0.20)`。自动字段不可手改；人工填写 `manual_valid`、`manual_onset_ms`、`manual_recovery_ms`、`note`。
@@ -303,7 +303,7 @@ godot --headless --path . --script res://tools/generate_review_package.gd -- \
 godot --headless --path . --script res://tools/aggregate_experiments.gd -- \
   --root "/absolute/path/to/experiments" \
   --out "/absolute/path/to/experiments/_aggregate" \
-  [--reanalyze-missing] [--dyad D001]
+  [--reanalyze-missing] [--dyad S1-D001]
 ```
 
 输出到 `_aggregate/`：
@@ -333,7 +333,7 @@ godot --headless --path . --script res://tools/aggregate_experiments.gd -- \
 
 ## 8. 隐私与数据治理
 
-- 只允许假名化编号：组号 `D001`，参与者 `D001-A` / `D001-B`。允许字符为数字、`D`/`A`/`B` 与连字符。禁止姓名、邮箱、电话、学号或自由文本。
+- 只允许假名化编号：组号 `S1-D001`，参与者 `S1-D001-A` / `S1-D001-B`。允许字符为数字、`S`/`D`/`A`/`B` 与连字符。禁止姓名、邮箱、电话、学号或自由文本。
 - `dyad_id`、`participant_A/B` 是假名化编号，不是匿名数据；编号映射不进 session 目录或 git。
 - `device_id` 是本次系统运行的输入设备编号，不是受试者身份。
 - `started_utc` 可能构成间接标识；共享前按伦理审批要求降精度或单独保管映射信息。
@@ -347,7 +347,7 @@ godot --headless --path . --script res://tools/aggregate_experiments.gd -- \
 
    ```bash
    godot --headless --path . --script res://tools/reanalyze_experiment.gd -- \
-     --session-dir "/absolute/path/to/experiments/dyad-D001/2026-08-15_032500Z"
+     --session-dir "/absolute/path/to/experiments/dyad-S1-D001/2026-08-15_032500Z"
    ```
 
 3. 检查命令输出 `EXPERIMENT_REANALYSIS_OK`，并核对 `results/analysis_manifest.json` 的版本、阈值和 `outputs`。

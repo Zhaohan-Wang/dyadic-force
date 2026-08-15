@@ -35,8 +35,16 @@ func _build() -> void:
 			GameState.ui("实验协议（已锁定）", "PROTOCOL (LOCKED)"), 24
 		)
 		cond_row.add_child(cond_label)
-		_condition_value = MenuKit.make_world_caption(_protocol_text(), 28)
-		MenuKit.set_pixel_outline_color(_condition_value, MenuKit.COL_ACCENT)
+		var protocol_label: Label = MenuKit.make_label(
+			_protocol_text(), 28, MenuKit.COL_ACCENT, 2
+		)
+		protocol_label.label_settings.font = MenuKit.prepare_data_font()
+		protocol_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		protocol_label.custom_minimum_size = Vector2(
+			MenuKit.prepare_data_font().get_string_size(_protocol_text(), HORIZONTAL_ALIGNMENT_LEFT, -1, 28).x + 8.0,
+			40.0,
+		)
+		_condition_value = protocol_label
 		cond_row.add_child(_condition_value)
 		list_top = 180.0
 

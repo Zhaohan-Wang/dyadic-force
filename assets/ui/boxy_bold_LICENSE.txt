@@ -1,0 +1,15 @@
+Boxy Bold
+
+Font design: William Thompsonj
+Original work and collaborators: Clint Bellanger, cemkalyoncu, usr_share
+
+This copy is distributed under Creative Commons Attribution 3.0:
+https://creativecommons.org/licenses/by/3.0/
+
+Source:
+https://opengameart.org/content/boxy-bold-truetype-font
+https://www.fontstruct.com/fontstructions/show/855993/boxy_bold
+
+The font is used for short, non-data English display text. It is not
+used for participant IDs or numeric readouts because its 0/O shapes
+are intentionally decorative and too similar for research identifiers.

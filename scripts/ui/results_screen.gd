@@ -348,7 +348,7 @@ func _make_icon_button(text: String, icon_name: String) -> Button:
 	return btn
 
 ## 一行结算数据：左名称右数值。
-## 数值用 Press Start 2P；字号 16（8 的倍数），视觉上与左侧 24px 中文标签对齐，不再头重脚轻。
+## 数值用高辨识度等宽粗体；斜线零明确区分数字 0 与字母 O。
 func _make_stat_row(label_text: String, value_text: String) -> Control:
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 16)
@@ -366,8 +366,8 @@ func _make_stat_row(label_text: String, value_text: String) -> Control:
 	value_label.size_flags_horizontal = Control.SIZE_SHRINK_END
 	value_label.custom_minimum_size = Vector2(140, 0)
 	var settings: LabelSettings = LabelSettings.new()
-	settings.font = MenuKit.prepare_title_font()
-	settings.font_size = 16
+	settings.font = MenuKit.prepare_data_font()
+	settings.font_size = 22
 	settings.font_color = MenuKit.COL_INK
 	settings.outline_size = 0
 	value_label.label_settings = settings
