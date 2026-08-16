@@ -1,22 +1,22 @@
 extends Node
 ## 唯一实验会话日志。每次应用运行只创建一个 session 目录，所有 trial/life 追加写入。
-## 导出游戏可写目录：user://experiments/dyad-<组号>/<UTC时间>/raw|results|qc/
+## 导出游戏可写目录：user://experiments/station-<采集站>/dyad-<组号>/<UTC时间>/raw|results|qc/
 
 const ROOT_DIR: String = "user://experiments"
 const RAW_FOLDER: String = "raw"
 const RESULTS_FOLDER: String = "results"
 const QC_FOLDER: String = "qc"
-const SCHEMA_VERSION: String = "3.1.0"
+const SCHEMA_VERSION: String = "3.2.0"
 const FLUSH_INTERVAL_S: float = 1.0
 const FULL_PUSH_THRESHOLD: float = 0.90
 const FINE_MIN: float = 0.20
 const FINE_MAX: float = 0.75
 
 const SESSION_COLUMNS: PackedStringArray = [
-	"schema_version", "app_version", "session_id", "dyad_id", "participant_A",
-	"participant_B", "relation_condition", "protocol_version", "side_assignment",
-	"started_utc", "platform", "deadzone", "curve_gamma", "force_max",
-	"physics_ticks_per_second", "missing_identity_fields",
+	"schema_version", "app_version", "session_id", "station_id", "dyad_id",
+	"participant_A", "participant_B", "relation_condition", "protocol_version",
+	"side_assignment", "started_utc", "platform", "deadzone", "curve_gamma",
+	"force_max", "physics_ticks_per_second", "missing_identity_fields",
 ]
 const CLOCK_COLUMNS: PackedStringArray = [
 	"schema_version", "session_id", "monotonic_time_us", "session_elapsed_ms",
@@ -432,8 +432,8 @@ func _ensure_session() -> bool:
 		return false
 	var missing: PackedStringArray = PackedStringArray()
 	for field: String in [
-		"dyad_id", "participant_A", "participant_B", "relation_condition",
-		"protocol_version", "side_assignment",
+		"station_number", "dyad_id", "participant_A", "participant_B",
+		"relation_condition", "protocol_version", "side_assignment",
 	]:
 		if not _has_property(GameState, field):
 			missing.append(field)
@@ -444,6 +444,7 @@ func _ensure_session() -> bool:
 		SCHEMA_VERSION,
 		app_version,
 		_session_id,
+		maxi(1, int(_identity_value("station_number", 1))),
 		_identity_value("dyad_id", ""),
 		_identity_value("participant_A", ""),
 		_identity_value("participant_B", ""),
@@ -463,13 +464,18 @@ func _ensure_session() -> bool:
 	session_file.close()
 	return true
 
-## 分配 user://experiments/dyad-<组号>/<UTC时间>/，同秒冲突时追加序号。
+## 分配 user://experiments/station-<采集站>/dyad-<组号>/<UTC时间>/，同秒冲突时追加序号。
 func _allocate_session_directory() -> bool:
 	if not _ensure_directory(ROOT_DIR):
 		push_error("ExperimentLog: cannot create experiments root")
 		return false
+	var station: int = maxi(1, int(_identity_value("station_number", 1)))
 	var dyad: String = _safe_id(str(_identity_value("dyad_id", "UNSET")))
-	var dyad_dir: String = ROOT_DIR.path_join("dyad-%s" % dyad)
+	var station_dir: String = ROOT_DIR.path_join("station-%d" % station)
+	if not _ensure_directory(station_dir):
+		push_error("ExperimentLog: cannot create station directory")
+		return false
+	var dyad_dir: String = station_dir.path_join("dyad-%s" % dyad)
 	if not _ensure_directory(dyad_dir):
 		push_error("ExperimentLog: cannot create dyad directory")
 		return false
@@ -479,7 +485,7 @@ func _allocate_session_directory() -> bool:
 		_session_dir = dyad_dir.path_join(folder)
 		if DirAccess.dir_exists_absolute(_session_dir):
 			continue
-		_session_id = "%s_%s" % [dyad, folder]
+		_session_id = "%d-%s_%s" % [station, dyad, folder]
 		_paths = make_nested_paths(_session_dir)
 		if not _ensure_directory(str(_paths["raw_directory"])):
 			_session_id = ""

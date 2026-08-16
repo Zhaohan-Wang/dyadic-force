@@ -32,7 +32,8 @@ func _ready() -> void:
 	_dyad_button.grab_focus.call_deferred()
 
 func _load_existing_values() -> void:
-	_dyad = GameState.normalize_dyad_id(GameState.dyad_id)
+	var sequence: int = GameState.dyad_sequence_number(GameState.dyad_id)
+	_dyad = str(sequence) if sequence > 0 else ""
 	if GameState.LOCKABLE_RELATIONS.has(GameState.relation_condition):
 		_relation = GameState.relation_condition
 
@@ -240,10 +241,17 @@ func _select_relation(next_relation: String) -> void:
 	_relation = next_relation
 	_refresh()
 
+func _composed_dyad() -> String:
+	return GameState.normalize_dyad_id(_dyad, _relation)
+
 func _refresh() -> void:
-	var has_dyad: bool = not _dyad.is_empty()
-	if has_dyad:
-		MenuKit.set_label_text(_dyad_value, _dyad)
+	var has_sequence: bool = not _dyad.is_empty()
+	var composed: String = _composed_dyad()
+	if has_sequence:
+		MenuKit.set_label_text(
+			_dyad_value,
+			composed if not composed.is_empty() else GameState.format_dyad_sequence(_dyad),
+		)
 		_apply_data_font(_dyad_value, 32)
 		_dyad_value.label_settings.font_color = MenuKit.COL_INK
 		_dyad_button.text = GameState.ui("修改组号", "CHANGE DYAD")
@@ -264,16 +272,16 @@ func _refresh() -> void:
 	_set_field_hint(
 		_dyad_hint,
 		GameState.ui(
-			"当前采集站 S%d · 请录入组号数字" % GameState.station_number,
-			"STATION S%d · ENTER THE NUMERIC DYAD SEQUENCE" % GameState.station_number,
+			"当前采集站 %d · 请录入组号数字" % GameState.station_number,
+			"STATION %d · ENTER THE NUMERIC DYAD SEQUENCE" % GameState.station_number,
 		)
-		if not has_dyad
+		if not has_sequence
 		else "",
 	)
 	_set_field_hint(
 		_relation_hint,
 		GameState.ui("请选择关系", "CHOOSE A RELATION")
-		if has_dyad and _relation == "unspecified"
+		if has_sequence and _relation == "unspecified"
 		else "",
 	)
 	_wire_page_focus()
@@ -288,14 +296,15 @@ func _set_field_hint(hint: Label, text: String) -> void:
 		hint.get_parent().visible = hint.visible
 
 func _refresh_assignment() -> void:
-	var has_dyad: bool = not _dyad.is_empty()
+	var composed: String = _composed_dyad()
+	var has_assignment: bool = not composed.is_empty()
 	if _assignment_row != null:
-		_assignment_row.visible = has_dyad
+		_assignment_row.visible = has_assignment
 	if _setup_panel != null:
-		var height: float = 520.0 if has_dyad else 390.0
+		var height: float = 520.0 if has_assignment else 390.0
 		_setup_panel.custom_minimum_size = Vector2(880, height)
 		_setup_panel.size = Vector2(880, height)
-	if not has_dyad:
+	if not has_assignment:
 		MenuKit.set_label_text(_assignment_body, "")
 		return
 	var a_slot: int = GameState.default_a_slot_for_dyad(_dyad)
@@ -305,15 +314,15 @@ func _refresh_assignment() -> void:
 		_assignment_body,
 		GameState.ui(
 			"A  %s    %s\nB  %s    %s" % [
-				GameState.default_participant_id(_dyad, "A"),
+				GameState.default_participant_id(composed, "A", _relation),
 				a_side,
-				GameState.default_participant_id(_dyad, "B"),
+				GameState.default_participant_id(composed, "B", _relation),
 				b_side,
 			],
 			"A  %s    %s\nB  %s    %s" % [
-				GameState.default_participant_id(_dyad, "A"),
+				GameState.default_participant_id(composed, "A", _relation),
 				a_side,
-				GameState.default_participant_id(_dyad, "B"),
+				GameState.default_participant_id(composed, "B", _relation),
 				b_side,
 			],
 		),
@@ -321,7 +330,7 @@ func _refresh_assignment() -> void:
 	_apply_data_font(_assignment_body, 24)
 
 func _can_continue() -> bool:
-	return not _dyad.is_empty() and GameState.LOCKABLE_RELATIONS.has(_relation)
+	return not _composed_dyad().is_empty()
 
 func _open_dyad_pad() -> void:
 	if _pad_layer != null:
@@ -375,8 +384,8 @@ func _open_dyad_pad() -> void:
 
 	box.add_child(MenuKit.make_panel_label(
 		GameState.ui(
-			"当前采集站 S%d · 这里只输入组内数字编号" % GameState.station_number,
-			"STATION S%d · ENTER THE NUMERIC DYAD SEQUENCE ONLY" % GameState.station_number,
+			"当前采集站 %d · 只输入数字，字母由关系自动生成" % GameState.station_number,
+			"STATION %d · ENTER DIGITS ONLY. F/S COMES FROM RELATION" % GameState.station_number,
 		),
 		18,
 		0.62,
@@ -501,14 +510,8 @@ func _pad_append(character: String) -> void:
 	_refresh_pad_value()
 
 func _draft_sequence_digits_from(value: String) -> String:
-	var digits: String = ""
-	var d_index: int = value.rfind("D")
-	var source: String = value.substr(d_index + 1) if d_index >= 0 else value
-	for index: int in source.length():
-		var character: String = source.substr(index, 1)
-		if character >= "0" and character <= "9":
-			digits += character
-	return digits
+	var sequence: int = GameState.dyad_sequence_number(value)
+	return str(sequence) if sequence > 0 else ""
 
 func _pad_backspace() -> void:
 	if _pad_draft.is_empty():
@@ -527,15 +530,15 @@ func _clear_pad_error() -> void:
 		_pad_error_label.text = ""
 
 func _confirm_dyad_pad() -> void:
-	var normalized: String = GameState.normalize_dyad_id(_pad_draft)
-	if normalized.is_empty():
+	var sequence: int = GameState.dyad_sequence_number(_pad_draft)
+	if sequence <= 0:
 		if _pad_error_label != null:
 			_pad_error_label.text = GameState.ui(
 				"编号无效，请输入大于 0 的数字",
 				"INVALID NUMBER. ENTER A NUMBER GREATER THAN 0",
 			)
 		return
-	_dyad = normalized
+	_dyad = str(sequence)
 	_close_dyad_pad()
 	_refresh()
 	_dyad_button.grab_focus.call_deferred()

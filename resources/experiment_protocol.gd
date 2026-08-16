@@ -2,7 +2,7 @@ class_name ExperimentProtocol
 extends Resource
 ## 离线行为分析协议。阈值写入 results/analysis_manifest.json，不单独成表。
 
-const ANALYSIS_VERSION: String = "2.1.0"
+const ANALYSIS_VERSION: String = "2.2.0"
 
 @export_range(0.0, 1.0, 0.01) var activity_threshold: float = 0.20
 @export_range(-1.0, 1.0, 0.01) var conflict_cosine_threshold: float = -0.50

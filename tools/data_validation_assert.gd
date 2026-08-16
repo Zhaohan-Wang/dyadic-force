@@ -121,9 +121,9 @@ func _run() -> void:
 
 func _prepare_identity() -> void:
 	_game_state.set("experiment_mode", true)
-	_game_state.set("dyad_id", "S1-D001")
-	_game_state.set("participant_A", "S1-D001-A")
-	_game_state.set("participant_B", "S1-D001-B")
+	_game_state.set("dyad_id", "F01")
+	_game_state.set("participant_A", "F01A")
+	_game_state.set("participant_B", "F01B")
 	_game_state.set("relation_condition", "friends")
 	_game_state.set("protocol_version", "pilot-1.0")
 	_game_state.set("participant_a_slot", 0)
@@ -256,7 +256,8 @@ func _assert_trial_result_contract(path: String) -> void:
 	_expect(not rows.is_empty(), "trial_results.csv unreadable")
 	var quit_row: Dictionary = {}
 	for row: Dictionary in rows:
-		_expect(row.get("dyad_id") == "S1-D001", "trial identity missing")
+		_expect(row.get("dyad_id") == "F01", "trial identity missing")
+		_expect(str(row.get("station_id", "")) != "", "trial station_id missing")
 		_expect(row.has("mean_render_fps"), "trial quality fields missing")
 		_expect(row.has("perturbation_count"), "trial perturbation summary missing")
 		if row.get("outcome") == "quit":

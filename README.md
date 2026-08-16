@@ -42,15 +42,15 @@
 
 ## 预实验
 
-每台电脑在设置里保存一次 **本站编号**。录入页只填组内数字，系统生成：
+每台电脑在设置里保存一次 **本站编号**，写入独立列 `station_id`。录入页只填组内数字，再选关系，系统生成：
 
-`S1-D001` / `S1-D001-A` / `S1-D001-B`
+`F01` / `F01A` / `F01B`（朋友）或 `S01` / `S01A` / `S01B`（陌生人）
 
 左右屏按组号奇偶分配。没有全局 Baseline / Perturbation 分组：第 3 关记正常协调，第 4 关固定真实干扰。两关不能包装成严格对照。
 
 数据写在游戏可写目录：
 
-`user://experiments/dyad-S1-D001/<UTC时间>/raw|results/`
+`user://experiments/station-1/dyad-F01/<UTC时间>/raw|results/`
 
 - `raw/`：`session.csv` / `frames.csv` / `events.csv`，不可覆盖
 - `results/`：有数据才写结果表
@@ -68,7 +68,7 @@
 - [五关扩展需求](docs/five_level_expansion_requirements.md)
 - [预实验 SOP](docs/pilot_experiment_protocol.md)
 - [现场记录表](docs/pilot_field_log.md)
-- [实验数据字典](docs/experiment_data_dictionary.md)（schema `3.1.0`）
+- [实验数据字典](docs/experiment_data_dictionary.md)（schema `3.2.0`）
 
 ## 架构
 

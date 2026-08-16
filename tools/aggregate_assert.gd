@@ -13,7 +13,7 @@ func _initialize() -> void:
 func _run() -> void:
 	_reset_root()
 	var first: Dictionary = _write_session(
-		"S1-D001",
+		"F01",
 		"2026-08-15_000001Z",
 		"pilot-1.0",
 		[
@@ -22,7 +22,7 @@ func _run() -> void:
 		]
 	)
 	var second: Dictionary = _write_session(
-		"S1-D002",
+		"F02",
 		"2026-08-15_000002Z",
 		"pilot-1.0",
 		[{"trial": "T0001", "level": "gate_run", "perturb": false, "gate": true}]
@@ -99,10 +99,10 @@ func _write_session(dyad_id: String, stamp: String, condition: String, trials: A
 	var schema: Dictionary = {
 		"schema_version": Aggregator.EXPECTED_SCHEMA_VERSION,
 		"session": PackedStringArray([
-			"schema_version", "app_version", "session_id", "dyad_id", "participant_A",
-			"participant_B", "relation_condition", "protocol_version", "side_assignment",
-			"started_utc", "platform", "deadzone", "curve_gamma", "force_max",
-			"physics_ticks_per_second", "missing_identity_fields",
+			"schema_version", "app_version", "session_id", "station_id", "dyad_id",
+			"participant_A", "participant_B", "relation_condition", "protocol_version",
+			"side_assignment", "started_utc", "platform", "deadzone", "curve_gamma",
+			"force_max", "physics_ticks_per_second", "missing_identity_fields",
 		]),
 		"frames": PackedStringArray([
 			"schema_version", "session_id", "monotonic_time_us", "session_elapsed_ms",
@@ -124,9 +124,10 @@ func _write_session(dyad_id: String, stamp: String, condition: String, trials: A
 		"schema_version": schema["schema_version"],
 		"app_version": "test",
 		"session_id": session_id,
+		"station_id": 1,
 		"dyad_id": dyad_id,
-		"participant_A": "%s-A" % dyad_id,
-		"participant_B": "%s-B" % dyad_id,
+		"participant_A": "%sA" % dyad_id,
+		"participant_B": "%sB" % dyad_id,
 		"relation_condition": "friends",
 		"protocol_version": condition,
 		"side_assignment": "A=P1;B=P2",

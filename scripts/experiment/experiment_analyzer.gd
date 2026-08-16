@@ -12,8 +12,9 @@ const QUIT_REASONS: PackedStringArray = [
 ]
 
 const TRIAL_COLUMNS: PackedStringArray = [
-	"analysis_version", "session_id", "trial_id", "dyad_id", "participant_A",
-	"participant_B", "relation_condition", "side_assignment", "level_id",
+	"analysis_version", "session_id", "trial_id", "station_id", "dyad_id",
+	"participant_A", "participant_B", "relation_condition", "side_assignment",
+	"level_id",
 	"level_attempt_index", "protocol_version",
 	"outcome", "quit_reason", "completion_time_ms",
 	"perturbation_count", "perturbed_participants", "perturb_gain_mean",
@@ -165,7 +166,7 @@ static func analyze_session(paths: Dictionary, protocol: ExperimentProtocol = nu
 		)
 		trial_result["session_id"] = session_id
 		for identity_field: String in [
-			"dyad_id", "participant_A", "participant_B",
+			"station_id", "dyad_id", "participant_A", "participant_B",
 			"relation_condition", "side_assignment",
 		]:
 			trial_result[identity_field] = session.get(identity_field, "")

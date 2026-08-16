@@ -242,7 +242,7 @@ func _toggle_language() -> void:
 	GameState.set_language(next)
 	_rebuild_for_language.call_deferred()
 
-## 本机采集站只在设置中配置一次，之后自动写入所有实验组号。
+## 本机采集站只在设置中配置一次，之后作为 station_id 写入日志。
 func _make_station_row() -> Control:
 	var row: HBoxContainer = HBoxContainer.new()
 	row.name = "StationSetting"
@@ -271,7 +271,7 @@ func _make_station_row() -> Control:
 	value_style.set_border_width_all(4)
 	value_style.set_corner_radius_all(6)
 	value_panel.add_theme_stylebox_override("panel", value_style)
-	var value: Label = MenuKit.make_label("S%d" % GameState.station_number, 32, MenuKit.COL_INK, 0)
+	var value: Label = MenuKit.make_label("%d" % GameState.station_number, 32, MenuKit.COL_INK, 0)
 	value.name = "StationValue"
 	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -287,7 +287,7 @@ func _make_station_row() -> Control:
 
 	var refresh: Callable = func() -> void:
 		GameState.station_number = maxi(1, GameState.station_number)
-		value.text = "S%d" % GameState.station_number
+		value.text = "%d" % GameState.station_number
 		minus.disabled = GameState.station_number <= 1
 		GameState.save_settings()
 	minus.pressed.connect(func() -> void:

@@ -18,20 +18,22 @@ func _run() -> void:
 	GameState.side_assignment = "A=P1;B=P2"
 	GameState.experiment_setup_locked = false
 
-	assert(GameState.sanitize_experiment_id("组-01 A") == "01A", "sanitizer must keep digits, D/A/B and hyphen")
+	assert(GameState.sanitize_experiment_id("组-01 A") == "01A", "sanitizer must keep digits and A/B")
 	assert(GameState.sanitize_experiment_id("P001Q") == "001", "P/Q must be stripped")
-	assert(GameState.normalize_dyad_id("1") == "S9-D001", "digits must use the saved station")
-	assert(GameState.normalize_dyad_id("01") == "S9-D001", "leading zero normalization failed")
+	assert(GameState.normalize_dyad_id("1").is_empty(), "digits alone are not a complete dyad ID")
+	assert(GameState.normalize_dyad_id("1", "friends") == "F01", "friends must use F plus two digits")
+	assert(GameState.normalize_dyad_id("01", "friends") == "F01", "leading zero normalization failed")
+	assert(GameState.normalize_dyad_id("1", "strangers") == "S01", "strangers must use S plus two digits")
+	assert(GameState.normalize_dyad_id("F01") == "F01", "canonical friend IDs must pass")
+	assert(GameState.normalize_dyad_id("S12") == "S12", "canonical stranger IDs must pass")
 	assert(GameState.normalize_dyad_id("D1").is_empty(), "legacy D-only IDs must be rejected")
-	assert(GameState.normalize_dyad_id("S9-D1") == "S9-D001", "canonical station format failed")
-	assert(GameState.normalize_dyad_id("S10-D1") == "S10-D001", "station IDs must scale past nine")
-	assert(GameState.normalize_dyad_id("S0-D1").is_empty(), "station zero must be rejected")
-	assert(GameState.normalize_dyad_id("S2D2").is_empty(), "noncanonical compact IDs must be rejected")
+	assert(GameState.normalize_dyad_id("S9-D1").is_empty(), "legacy station-prefixed IDs must be rejected")
+	assert(GameState.normalize_dyad_id("S10-D1").is_empty(), "legacy station IDs must be rejected")
 	assert(GameState.normalize_dyad_id("A1").is_empty(), "A must not be a dyad prefix")
 	assert(GameState.normalize_dyad_id("B1").is_empty(), "B must not be a dyad prefix")
-	assert(GameState.normalize_dyad_id("D001-A").is_empty(), "participant ID must not pass as a dyad ID")
-	assert(GameState.default_participant_id("1", "A") == "S9-D001-A", "auto A failed")
-	assert(GameState.default_participant_id("2", "B") == "S9-D002-B", "auto B failed")
+	assert(GameState.normalize_dyad_id("F01A").is_empty(), "participant ID must not pass as a dyad ID")
+	assert(GameState.default_participant_id("1", "A", "friends") == "F01A", "auto A failed")
+	assert(GameState.default_participant_id("2", "B", "strangers") == "S02B", "auto B failed")
 	assert(GameState.default_a_slot_for_dyad("1") == 0, "odd dyad should put A on P1")
 	assert(GameState.default_a_slot_for_dyad("2") == 1, "even dyad should put A on P2")
 	assert(not GameState.LOCKABLE_RELATIONS.has("partners"), "partners is no longer a lockable relation")
@@ -41,16 +43,17 @@ func _run() -> void:
 	assert(not GameState.lock_experiment_setup("1", "partners"), "partners must be rejected")
 	assert(not GameState.lock_experiment_setup("0", "friends"), "non-positive dyad must be rejected")
 	assert(GameState.lock_experiment_setup("1", "friends"), "valid dyad and relation should lock")
-	assert(GameState.dyad_id == "S9-D001", "dyad normalize mismatch")
-	assert(GameState.participant_A == "S9-D001-A", "auto participant A mismatch")
-	assert(GameState.participant_B == "S9-D001-B", "auto participant B mismatch")
+	assert(GameState.dyad_id == "F01", "friends dyad normalize mismatch")
+	assert(GameState.participant_A == "F01A", "auto participant A mismatch")
+	assert(GameState.participant_B == "F01B", "auto participant B mismatch")
 	assert(GameState.side_assignment == "A=P1;B=P2", "odd dyad side mismatch")
+	assert(GameState.station_number == 9, "lock must not rewrite the station setting")
 	assert(GameState.experiment_setup_locked, "setup should lock")
 
 	GameState.experiment_setup_locked = false
 	assert(GameState.lock_experiment_setup("2", "strangers"), "even dyad should lock")
-	assert(GameState.dyad_id == "S9-D002", "even dyad normalize mismatch")
-	assert(GameState.participant_A == "S9-D002-A", "even dyad must still auto-fill A")
+	assert(GameState.dyad_id == "S02", "even stranger dyad normalize mismatch")
+	assert(GameState.participant_A == "S02A", "even dyad must still auto-fill A")
 	assert(GameState.side_assignment == "A=P2;B=P1", "even dyad should assign A to P2")
 	assert(GameState.participant_letter_for_slot(0) == "B", "P1 should map to B on even dyads")
 
@@ -229,24 +232,9 @@ func _run() -> void:
 	setup.call("_unhandled_key_input", confirm_enter)
 	await get_tree().process_frame
 	assert(setup.find_child("NumericPad", true, false) == null, "Enter on Confirm should close the pad")
-	assert(setup.get("_dyad") == "S9-D002", "typed dyad should use the saved station")
-	assert(dyad_value.text == "S9-D002", "main page should show the normalized dyad")
-	assert((setup.find_child("AssignmentRow", true, false) as Control).visible, "assignment appears after a dyad is entered")
-	assert(
-		panel.get_global_rect().has_point(back_button.get_global_rect().end - Vector2.ONE)
-		and panel.get_global_rect().has_point(
-			continue_button.get_global_rect().end - Vector2.ONE
-		),
-		"expanded form must still contain both page actions",
-	)
-	assert(
-		(setup.find_child("AssignmentBody", true, false) as Label).text.contains("S9-D002-A"),
-		"summary must show auto participant A",
-	)
-	assert(
-		(setup.find_child("AssignmentBody", true, false) as Label).text.contains("P2"),
-		"even dyad summary must show A on P2",
-	)
+	assert(setup.get("_dyad") == "2", "typed dyad should store the numeric sequence")
+	assert(dyad_value.text == "02", "main page should show the padded sequence before a relation")
+	assert(not (setup.find_child("AssignmentRow", true, false) as Control).visible, "assignment waits for a relation")
 	assert(continue_button.disabled, "continue still requires a relation")
 	assert(setup.get("_dyad_hint").text.is_empty(), "filled dyad should clear its field hint")
 	assert(setup.get("_relation_hint").text.contains("关系") or setup.get("_relation_hint").text.contains("朋友"), "relation hint must sit with the relation field")
@@ -260,7 +248,7 @@ func _run() -> void:
 	cancel_action.pressed = true
 	setup.call("_input", cancel_action)
 	await get_tree().process_frame
-	assert(setup.get("_dyad") == "S9-D002", "gamepad B / cancel should restore the previous dyad")
+	assert(setup.get("_dyad") == "2", "gamepad B / cancel should restore the previous dyad")
 
 	setup.call("_open_dyad_pad")
 	await get_tree().process_frame
@@ -271,11 +259,9 @@ func _run() -> void:
 	done_joy.pressed = true
 	setup.call("_input", done_joy)
 	await get_tree().process_frame
-	assert(setup.get("_dyad") == "S9-D001", "gamepad Start should confirm with saved station")
-	assert(
-		(setup.find_child("AssignmentBody", true, false) as Label).text.contains("P1"),
-		"odd dyad summary must show A on P1",
-	)
+	assert(setup.get("_dyad") == "1", "gamepad Start should confirm the numeric sequence")
+	assert(dyad_value.text == "01", "odd sequence should stay padded until a relation is chosen")
+	assert(not (setup.find_child("AssignmentRow", true, false) as Control).visible, "assignment still waits for a relation")
 
 	setup.call("_open_dyad_pad")
 	await get_tree().process_frame
@@ -283,13 +269,39 @@ func _run() -> void:
 	setup.call("_pad_append", "3")
 	setup.call("_confirm_dyad_pad")
 	await get_tree().process_frame
-	assert(setup.get("_dyad") == "S9-D003", "saved station must be applied automatically")
+	assert(setup.get("_dyad") == "3", "confirm should keep the numeric sequence")
+	assert(dyad_value.text == "03", "sequence three should stay padded until a relation is chosen")
 
 	setup.call("_select_relation", "friends")
+	assert(dyad_value.text == "F03", "friends must compose F plus the sequence")
+	assert((setup.find_child("AssignmentRow", true, false) as Control).visible, "assignment appears after relation")
+	assert(
+		panel.get_global_rect().has_point(back_button.get_global_rect().end - Vector2.ONE)
+		and panel.get_global_rect().has_point(
+			continue_button.get_global_rect().end - Vector2.ONE
+		),
+		"expanded form must still contain both page actions",
+	)
+	assert(
+		(setup.find_child("AssignmentBody", true, false) as Label).text.contains("F03A"),
+		"summary must show auto participant A",
+	)
+	assert(
+		(setup.find_child("AssignmentBody", true, false) as Label).text.contains("P1"),
+		"odd dyad summary must show A on P1",
+	)
 	assert(not continue_button.disabled, "continue should enable after dyad and relation")
 	assert(setup.get("_dyad_hint").text.is_empty(), "ready form should clear the dyad hint")
 	assert(setup.get("_relation_hint").text.is_empty(), "ready form should clear the relation hint")
 	assert(friends.button_pressed and not strangers.button_pressed, "friends should be the selected choice")
+	setup.call("_select_relation", "strangers")
+	assert(dyad_value.text == "S03", "changing relation must retag the same sequence")
+	assert(
+		(setup.find_child("AssignmentBody", true, false) as Label).text.contains("S03A"),
+		"summary must follow the live relation letter",
+	)
+	setup.call("_select_relation", "friends")
+	assert(dyad_value.text == "F03", "switching back to friends must restore F")
 	var selected_style: StyleBoxFlat = friends.get_theme_stylebox("pressed") as StyleBoxFlat
 	var normal_style: StyleBoxFlat = friends.get_theme_stylebox("normal") as StyleBoxFlat
 	assert(
@@ -306,8 +318,10 @@ func _run() -> void:
 		"complete form should lock",
 	)
 	assert(GameState.relation_condition == "friends", "locked relation mismatch")
-	assert(GameState.participant_A == "S9-D003-A", "lock must write station-scoped auto A")
+	assert(GameState.dyad_id == "F03", "lock must compose the relation letter")
+	assert(GameState.participant_A == "F03A", "lock must write compact auto A")
 	assert(GameState.side_assignment == "A=P1;B=P2", "lock must write parity sides")
+	assert(GameState.station_number == 9, "station stays a separate persistent setting")
 
 	var level_select: Node = (
 		load("res://scenes/level_select.tscn") as PackedScene

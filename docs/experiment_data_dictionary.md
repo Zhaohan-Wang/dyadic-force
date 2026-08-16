@@ -1,6 +1,6 @@
 # 实验数据字典
 
-本文档对应原始 schema `3.1.0` 与分析版本 `2.1.0`。当前现场流程是单次可行性预实验（协议 `pilot-1.0`），详见 [预实验 SOP](pilot_experiment_protocol.md)。
+本文档对应原始 schema `3.2.0` 与分析版本 `2.2.0`。当前现场流程是单次可行性预实验（协议 `pilot-1.0`），详见 [预实验 SOP](pilot_experiment_protocol.md)。
 
 一组实验（一次应用运行）只产生两类文件：
 
@@ -12,7 +12,7 @@
 ## 1. 保存位置、编码与缺失值
 
 - 每次应用运行创建唯一目录：
-  `user://experiments/dyad-<组号>/<UTC时间>/`。
+  `user://experiments/station-<采集站>/dyad-<组号>/<UTC时间>/`。
   - `raw/`：不可覆盖的过程记录 `session.csv`、`frames.csv`、`events.csv`。
   - `results/`：有数据才写出的结果表，以及 `analysis_manifest.json`。
   - `qc/`：仅在显式生成复核包时出现。
@@ -29,9 +29,9 @@
 
 | 字段 | 类型 / 单位 | 定义 |
 |---|---|---|
-| `schema_version` | 字符串 | 原始表结构版本，当前为 `3.1.0`。 |
-| `analysis_version` | 字符串 | 结果算法版本，当前为 `2.1.0`。 |
-| `session_id` | 字符串 | 一次应用运行的唯一 ID，格式 `<组号>_<UTC文件夹名>`，例如 `S1-D001_2026-08-15_032500Z`。 |
+| `schema_version` | 字符串 | 原始表结构版本，当前为 `3.2.0`。 |
+| `analysis_version` | 字符串 | 结果算法版本，当前为 `2.2.0`。 |
+| `session_id` | 字符串 | 一次应用运行的唯一 ID，格式 `<采集站>-<组号>_<UTC文件夹名>`，例如 `1-F01_2026-08-15_032500Z`。 |
 | `trial_id` | 字符串 | 每次关卡启动的唯一 ID，格式 `<session>-T####`。 |
 | `life_id` | 字符串 | trial 内生命 ID，格式 `<trial>-L###`；死亡重生递增，死亡不新建 trial。 |
 | `level_id` | 字符串 | 稳定关卡标识。 |
@@ -55,9 +55,10 @@
 | `schema_version` | 字符串 | 见通用约定。 |
 | `app_version` | 字符串 | Godot 项目版本；开发构建未配置时为 `dev`。 |
 | `session_id` | 字符串 | 见通用约定。 |
-| `dyad_id` | 假名化编号 | 组号，规范为 `S<采集站>-D<至少三位序号>`，例如 `S1-D001`。研究员只输入数字 `1`，系统从永久保存的本站编号生成完整值。 |
-| `participant_A`, `participant_B` | 假名化编号 | 由组号自动生成 `S1-D001-A` / `S1-D001-B`。A/B 是稳定身份，不随左右屏变化。不得填写姓名。 |
-| `relation_condition` | 枚举 | 正式数据仅为 `strangers`、`friends`。`unspecified` 不能锁定。 |
+| `station_id` | 正整数 | 本机采集站编号，来自标题页设置，永久保存。不编进 `dyad_id`。并行电脑用不同值，避免两台机器都出现 `F01` 时无法区分。 |
+| `dyad_id` | 假名化编号 | 组号，规范为关系字母 + 至少两位序号：朋友 `F01`，陌生人 `S01`。研究员只输入数字 `1`，字母由关系条件生成。 |
+| `participant_A`, `participant_B` | 假名化编号 | 由组号自动生成 `F01A` / `F01B` 或 `S01A` / `S01B`。A/B 是稳定身份，不随左右屏变化。不得填写姓名。 |
+| `relation_condition` | 枚举 | 正式数据仅为 `strangers`、`friends`。`unspecified` 不能锁定。字母与此字段必须一致。 |
 | `protocol_version` | 字符串 | 当前为 `pilot-1.0`。 |
 | `side_assignment` | 字符串 | `A=P1;B=P2` 或 `A=P2;B=P1`；由组号奇偶自动写入。P1=左屏/槽 0，P2=右屏/槽 1。 |
 | `started_utc` | ISO 8601 UTC | 唯一用于审计的系统墙钟；不参与时差计算。 |
@@ -197,7 +198,7 @@ READY/RUNNING 阶段每个物理帧至多一行，A/B 按参与者而不是设�
 | 字段 | 层级 | 单位 / 枚举 | 定义或公式 |
 |---|---|---|---|
 | `analysis_version`, `session_id`, `trial_id`, `level_id`, `level_attempt_index`, `protocol_version` | 键 | — | 版本与键。 |
-| `dyad_id`, `participant_A`, `participant_B`, `relation_condition`, `side_assignment` | 条件 | — | 从 `session.csv` 冗余到试次主表，便于直接建模；值的定义与 session 表相同。 |
+| `station_id`, `dyad_id`, `participant_A`, `participant_B`, `relation_condition`, `side_assignment` | 条件 | — | 从 `session.csv` 冗余到试次主表，便于直接建模；值的定义与 session 表相同。跨机唯一键是 `(station_id, dyad_id)`。 |
 | `outcome` | 核心 | 枚举 | 最后一个 `trial_end.outcome`；缺失时 `incomplete`。重开/退出看这里，不再单独计数。 |
 | `quit_reason` | 核心 | 枚举/空 | 仅 `outcome=quit` 有值：`controller_disconnected`（退出时仍断连）、`level_select_requested`、`level_tree_exit` 或 `unspecified`。 |
 | `completion_time_ms` | 核心 | ms/空 | `trial_duration_ms - run_start_ms`；缺少 `run_start` 时为空。 |
@@ -305,7 +306,7 @@ READY/RUNNING 阶段每个物理帧至多一行，A/B 按参与者而不是设�
 
 ```bash
 godot --headless --path . --script res://tools/generate_review_package.gd -- \
-  --session-dir "/absolute/path/to/experiments/dyad-S1-D001/2026-08-15_032500Z"
+     --session-dir "/absolute/path/to/experiments/station-1/dyad-F01/2026-08-15_032500Z"
 ```
 
 - `review_queue.csv`：按 `sha256(session_id|perturbation_id)` 稳定排序，抽取 `ceil(扰动数×0.20)`。自动字段不可手改；人工填写 `manual_valid`、`manual_onset_ms`、`manual_recovery_ms`、`note`。
@@ -322,7 +323,7 @@ godot --headless --path . --script res://tools/generate_review_package.gd -- \
 godot --headless --path . --script res://tools/aggregate_experiments.gd -- \
   --root "/absolute/path/to/experiments" \
   --out "/absolute/path/to/experiments/_aggregate" \
-  [--reanalyze-missing] [--dyad S1-D001]
+  [--reanalyze-missing] [--dyad F01]
 ```
 
 输出到 `_aggregate/`：
@@ -330,14 +331,14 @@ godot --headless --path . --script res://tools/aggregate_experiments.gd -- \
 | 文件 | 来源 | 说明 |
 |---|---|---|
 | `sessions.csv` | 各 `raw/session.csv` | session 索引 + 路径、trial 数、原始完整性、缺失 `trial_end` 数。 |
-| `trials.csv` | `trial_results.csv` | 研究主表；补齐 `dyad_id`、参与者、关系条件、`started_utc`、`session_dir`。 |
+| `trials.csv` | `trial_results.csv` | 研究主表；补齐 `station_id`、`dyad_id`、参与者、关系条件、`started_utc`、`session_dir`。 |
 | `perturbations.csv` / `gates.csv` / `segments.csv` / `choices.csv` | 对应专项表 | 仅当至少一行时写出；同样补齐身份列。 |
-| `dyads.csv` | 由 `trials.csv` 重算 | 按 `(dyad_id, protocol_version, level_id)` 汇总成功率、领导稳定性与均值。 |
+| `dyads.csv` | 由 `trials.csv` 重算 | 按 `(station_id, dyad_id, protocol_version, level_id)` 汇总成功率、领导稳定性与均值。 |
 | `aggregate_report.json` | 汇总过程 | 纳入/跳过/错误 session 与行数。 |
 
 规则：
 
-- 只纳入 schema `3.1.0` 且 analysis `2.1.0` 的 session。
+- 只纳入 schema `3.2.0` 且 analysis `2.2.0` 的 session。
 - 版本不一致时拒绝静默混合，只写报告。
 - 主键必须唯一：`session_id`、`trial_id`、`perturbation_id`，以及组件表的复合键。
 - `monotonic_time_us` 不可跨 session 比较；跨组分析用 `started_utc` 与 `trial_elapsed_ms`。
@@ -352,8 +353,8 @@ godot --headless --path . --script res://tools/aggregate_experiments.gd -- \
 
 ## 8. 隐私与数据治理
 
-- 只允许假名化编号：组号 `S1-D001`，参与者 `S1-D001-A` / `S1-D001-B`。允许字符为数字、`S`/`D`/`A`/`B` 与连字符。禁止姓名、邮箱、电话、学号或自由文本。
-- `dyad_id`、`participant_A/B` 是假名化编号，不是匿名数据；编号映射不进 session 目录或 git。
+- 只允许假名化编号：组号 `F01` / `S01`，参与者 `F01A` / `F01B`。允许字符为数字与 `F`/`S`/`A`/`B`。禁止姓名、邮箱、电话、学号或自由文本。
+- `dyad_id`、`participant_A/B` 是假名化编号，不是匿名数据；编号映射不进 session 目录或 git。采集站用独立列 `station_id`，不要写进组号。
 - `device_id` 是本次系统运行的输入设备编号，不是受试者身份。
 - `started_utc` 可能构成间接标识；共享前按伦理审批要求降精度或单独保管映射信息。
 - 不要把编号映射表放进 session 目录或版本控制。
@@ -366,7 +367,7 @@ godot --headless --path . --script res://tools/aggregate_experiments.gd -- \
 
    ```bash
    godot --headless --path . --script res://tools/reanalyze_experiment.gd -- \
-     --session-dir "/absolute/path/to/experiments/dyad-S1-D001/2026-08-15_032500Z"
+     --session-dir "/absolute/path/to/experiments/station-1/dyad-F01/2026-08-15_032500Z"
    ```
 
 3. 检查命令输出 `EXPERIMENT_REANALYSIS_OK`，并核对 `results/analysis_manifest.json` 的版本、阈值和 `outputs`。

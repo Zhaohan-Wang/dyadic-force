@@ -127,9 +127,9 @@ func _run() -> void:
 	get_tree().quit(0)
 
 func _prepare_result(game_state: Node) -> void:
-	game_state.set("dyad_id", "S1-D001")
-	game_state.set("participant_A", "S1-D001-A")
-	game_state.set("participant_B", "S1-D001-B")
+	game_state.set("dyad_id", "F01")
+	game_state.set("participant_A", "F01A")
+	game_state.set("participant_B", "F01B")
 	game_state.set("relation_condition", "friends")
 	game_state.set("participant_a_slot", 0)
 	game_state.set("experiment_setup_locked", true)

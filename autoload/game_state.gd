@@ -38,7 +38,7 @@ var language: String = "zh"
 var experiment_mode: bool = false
 ## 调试模式：选关页教学关下显示物理滑条；默认关闭。
 var debug_mode: bool = false
-## 本机的持久化采集站编号；所有新组号自动带入，不在录入页重复选择。
+## 本机的持久化采集站编号；写入 station_id 列，不编进组号。
 var station_number: int = 1
 
 ## 已通关的关卡 ID 列表
@@ -50,7 +50,7 @@ const LANGUAGE_ZH: String = "zh"
 const LANGUAGE_EN: String = "en"
 const ID_MAX_LENGTH: int = 16
 const PROTOCOL_VERSION: String = "pilot-1.0"
-const ID_ALLOWED: String = "0123456789SDAB-"
+const ID_ALLOWED: String = "0123456789FSAB"
 const RELATION_CONDITIONS: PackedStringArray = [
 	"unspecified",
 	"strangers",
@@ -126,7 +126,7 @@ func pairing_back_scene() -> String:
 		return "res://scenes/experiment_setup_screen.tscn"
 	return "res://scenes/title_screen.tscn"
 
-## 只保留去标识编号允许的字符：数字、S/D/A/B 与连字符。
+## 只保留去标识编号允许的字符：数字与 F/S/A/B。
 func sanitize_experiment_id(raw_value: String) -> String:
 	var result: String = ""
 	for index: int in raw_value.length():
@@ -135,35 +135,56 @@ func sanitize_experiment_id(raw_value: String) -> String:
 			result += character
 		if result.length() >= ID_MAX_LENGTH:
 			break
-	while result.begins_with("-"):
-		result = result.substr(1)
-	while result.ends_with("-"):
-		result = result.substr(0, result.length() - 1)
 	return result
 
-## 唯一组号规范为 S<本站编号>-D<组内序号>；录入页只传入数字。
-func normalize_dyad_id(raw_value: String) -> String:
+## 朋友 F01 / 陌生人 S01。字母只来自关系，采集站不编进组号。
+func normalize_dyad_id(raw_value: String, relation: String = "") -> String:
+	var sequence: int = dyad_sequence_number(raw_value)
+	if sequence <= 0:
+		return ""
+	var prefix: String = relation_prefix(relation)
+	if prefix.is_empty():
+		prefix = _condition_prefix_from_id(raw_value)
+	if prefix.is_empty():
+		return ""
+	return "%s%02d" % [prefix, sequence]
+
+func relation_prefix(relation: String) -> String:
+	match relation:
+		"friends":
+			return "F"
+		"strangers":
+			return "S"
+		_:
+			return ""
+
+func format_dyad_sequence(raw_value: String) -> String:
+	var sequence: int = dyad_sequence_number(raw_value)
+	if sequence <= 0:
+		return ""
+	return "%02d" % sequence
+
+func dyad_sequence_number(raw_value: String) -> int:
 	var clean: String = raw_value.strip_edges().to_upper()
 	if clean.is_empty():
-		return ""
+		return 0
 	var sequence: String = clean
-	var parsed_station: int = station_number
-	if clean.begins_with("S"):
-		var separator_index: int = clean.find("-D")
-		if separator_index <= 1:
-			return ""
-		var station_digits: String = clean.substr(1, separator_index - 1)
-		sequence = clean.substr(separator_index + 2)
-		if not _is_positive_digit_string(station_digits):
-			return ""
-		parsed_station = station_digits.to_int()
-	for index: int in sequence.length():
-		var character: String = sequence.substr(index, 1)
-		if character < "0" or character > "9":
-			return ""
+	if clean.begins_with("F") or clean.begins_with("S"):
+		sequence = clean.substr(1)
 	if not _is_positive_digit_string(sequence):
+		return 0
+	return sequence.to_int()
+
+func _condition_prefix_from_id(raw_value: String) -> String:
+	var clean: String = raw_value.strip_edges().to_upper()
+	if clean.length() < 2:
 		return ""
-	return "S%d-D%03d" % [parsed_station, sequence.to_int()]
+	var prefix: String = clean.substr(0, 1)
+	if prefix != "F" and prefix != "S":
+		return ""
+	if not _is_positive_digit_string(clean.substr(1)):
+		return ""
+	return prefix
 
 func _is_positive_digit_string(value: String) -> bool:
 	if value.is_empty():
@@ -174,48 +195,45 @@ func _is_positive_digit_string(value: String) -> bool:
 			return false
 	return value.to_int() > 0
 
-## 由组号派生稳定参与者编号，例如 S1-D001-A / S1-D001-B。
-func default_participant_id(raw_dyad: String, letter: String) -> String:
-	var dyad: String = normalize_dyad_id(raw_dyad)
+## 由组号派生稳定参与者编号，例如 F01A / S01B。
+func default_participant_id(raw_dyad: String, letter: String, relation: String = "") -> String:
+	var dyad: String = normalize_dyad_id(raw_dyad, relation)
 	var tag: String = letter.to_upper()
 	if dyad.is_empty() or tag not in ["A", "B"]:
 		return ""
-	return "%s-%s" % [dyad, tag]
+	return "%s%s" % [dyad, tag]
 
 ## 奇数 A=P1，偶数 A=P2。无法解析时默认 A=P1。
 func default_a_slot_for_dyad(raw_dyad: String) -> int:
-	var canonical: String = normalize_dyad_id(raw_dyad)
-	var d_index: int = canonical.rfind("D")
-	var digits: String = canonical.substr(d_index + 1) if d_index >= 0 else ""
-	if digits.is_empty():
+	var sequence: int = dyad_sequence_number(raw_dyad)
+	if sequence <= 0:
 		return 0
-	return 0 if digits.to_int() % 2 == 1 else 1
+	return 0 if sequence % 2 == 1 else 1
 
-func is_default_participant_id(raw_dyad: String, raw_participant: String, letter: String) -> bool:
-	return sanitize_experiment_id(raw_participant) == default_participant_id(raw_dyad, letter)
+func is_default_participant_id(
+	raw_dyad: String,
+	raw_participant: String,
+	letter: String,
+	relation: String = "",
+) -> bool:
+	return sanitize_experiment_id(raw_participant) == default_participant_id(
+		raw_dyad, letter, relation
+	)
 
-## 校验并锁定实验信息。参与者编号与侧别只由组号生成，不能手工覆盖。
+## 校验并锁定实验信息。参与者编号与侧别只由组号和关系生成，不能手工覆盖。
 func lock_experiment_setup(next_dyad_id: String, next_relation: String) -> bool:
-	var clean_dyad: String = normalize_dyad_id(next_dyad_id)
+	var clean_dyad: String = normalize_dyad_id(next_dyad_id, next_relation)
 	if clean_dyad.is_empty() or not LOCKABLE_RELATIONS.has(next_relation):
 		return false
 	dyad_id = clean_dyad
-	participant_A = default_participant_id(clean_dyad, "A")
-	participant_B = default_participant_id(clean_dyad, "B")
+	participant_A = default_participant_id(clean_dyad, "A", next_relation)
+	participant_B = default_participant_id(clean_dyad, "B", next_relation)
 	relation_condition = next_relation
 	protocol_version = PROTOCOL_VERSION
 	participant_a_slot = default_a_slot_for_dyad(clean_dyad)
 	side_assignment = "A=P1;B=P2" if participant_a_slot == 0 else "A=P2;B=P1"
 	experiment_setup_locked = true
 	return true
-
-func _digits_only(raw_value: String) -> String:
-	var digits: String = ""
-	for index: int in raw_value.length():
-		var character: String = raw_value.substr(index, 1)
-		if character >= "0" and character <= "9":
-			digits += character
-	return digits
 
 ## 返回设备槽位对应的参与者标签（A/B）。
 func participant_letter_for_slot(slot: int) -> String:

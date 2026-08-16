@@ -2,7 +2,7 @@ extends SceneTree
 ## 合成确定性验证：基础协作、已知 lag、补偿、恢复、删失、过补偿与复核抽样。
 
 const SESSION_TEST_COLUMNS: PackedStringArray = [
-	"session_id", "dyad_id", "participant_A", "participant_B",
+	"session_id", "station_id", "dyad_id", "participant_A", "participant_B",
 	"relation_condition", "side_assignment", "force_max",
 	"physics_ticks_per_second",
 ]
@@ -178,7 +178,7 @@ func _test_review_package(protocol: ExperimentProtocol) -> void:
 		root.path_join("session.csv"),
 		SESSION_TEST_COLUMNS,
 		[[
-			"FIXED_SESSION", "S9-D001", "S9-D001-A", "S9-D001-B",
+			"FIXED_SESSION", 9, "F01", "F01A", "F01B",
 			"friends", "A=P1;B=P2", 1.0, 60,
 		]],
 	)
@@ -233,7 +233,8 @@ func _test_review_package(protocol: ExperimentProtocol) -> void:
 	_expect(not trial_rows.is_empty(), "trial summary unreadable")
 	if not trial_rows.is_empty():
 		var trial: Dictionary = trial_rows[0]
-		_expect(trial.get("dyad_id") == "S9-D001", "trial identity not denormalized")
+		_expect(trial.get("dyad_id") == "F01", "trial identity not denormalized")
+		_expect(str(trial.get("station_id", "")) == "9", "trial station_id not denormalized")
 		_expect(int(trial.get("perturbation_count", 0)) == 10, "trial perturbation count")
 		_expect(trial.get("perturbed_participants") == "A;B", "trial perturbed participants")
 	_expect(ExperimentAnalyzer.export_review_package(paths, protocol), "first review package")
@@ -262,7 +263,7 @@ func _frame(
 	signed_error: float,
 ) -> Dictionary:
 	return {
-		"schema_version": "3.1.0", "session_id": "S", "trial_id": "S-T0001",
+		"schema_version": "3.2.0", "session_id": "S", "trial_id": "S-T0001",
 		"life_id": "S-T0001-L001", "level_id": "synthetic",
 		"level_attempt_index": 1, "protocol_version": "pilot-1.0",
 		"trial_elapsed_ms": time_ms, "physics_delta_s": 0.02,
@@ -280,7 +281,7 @@ func _frame(
 
 func _event(time_ms: float, event_type: String, outcome: String = "") -> Dictionary:
 	return {
-		"schema_version": "3.1.0", "session_id": "S", "trial_id": "S-T0001",
+		"schema_version": "3.2.0", "session_id": "S", "trial_id": "S-T0001",
 		"life_id": "S-T0001-L001", "level_id": "synthetic",
 		"level_attempt_index": 1, "protocol_version": "pilot-1.0",
 		"trial_elapsed_ms": time_ms, "event_type": event_type, "outcome": outcome,

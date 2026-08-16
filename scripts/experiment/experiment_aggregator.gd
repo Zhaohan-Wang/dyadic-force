@@ -2,14 +2,14 @@ class_name ExperimentAggregator
 extends RefCounted
 ## 跨 session 汇总：补齐身份列、校验版本/主键，并按需写出专项总表。
 
-const EXPECTED_SCHEMA_VERSION: String = "3.1.0"
+const EXPECTED_SCHEMA_VERSION: String = "3.2.0"
 const RAW_FOLDER: String = "raw"
 const RESULTS_FOLDER: String = "results"
 const QC_FOLDER: String = "qc"
 
 const IDENTITY_COLUMNS: PackedStringArray = [
-	"dyad_id", "participant_A", "participant_B", "relation_condition",
-	"side_assignment", "started_utc", "session_dir",
+	"station_id", "dyad_id", "participant_A", "participant_B",
+	"relation_condition", "side_assignment", "started_utc", "session_dir",
 ]
 
 const SESSION_INDEX_EXTRA: PackedStringArray = [
@@ -18,12 +18,12 @@ const SESSION_INDEX_EXTRA: PackedStringArray = [
 ]
 
 const SESSION_REQUIRED: PackedStringArray = [
-	"schema_version", "session_id", "dyad_id", "participant_A", "participant_B",
-	"relation_condition", "protocol_version", "started_utc",
+	"schema_version", "session_id", "station_id", "dyad_id", "participant_A",
+	"participant_B", "relation_condition", "protocol_version", "started_utc",
 ]
 
 const STUDY_DYAD_COLUMNS: PackedStringArray = [
-	"analysis_version", "dyad_id", "protocol_version", "level_id",
+	"analysis_version", "station_id", "dyad_id", "protocol_version", "level_id",
 	"session_count", "trial_count", "success_count", "success_rate",
 	"restarted_count", "quit_count", "A_leader_count", "B_leader_count",
 	"ambiguous_count", "same_leader_stability", "mean_completion_time_ms",
@@ -242,6 +242,7 @@ func _inspect_session(session_dir: String, reanalyze_missing: bool, dyad_filter:
 		]
 		return result
 	var identity: Dictionary = {
+		"station_id": session.get("station_id", ""),
 		"dyad_id": dyad_id,
 		"participant_A": session.get("participant_A", ""),
 		"participant_B": session.get("participant_B", ""),
@@ -283,7 +284,8 @@ func _inspect_session(session_dir: String, reanalyze_missing: bool, dyad_filter:
 func _study_dyads(trials: Array[Dictionary]) -> Array[Dictionary]:
 	var groups: Dictionary = {}
 	for trial: Dictionary in trials:
-		var key: String = "%s|%s|%s" % [
+		var key: String = "%s|%s|%s|%s" % [
+			trial.get("station_id", ""),
 			trial.get("dyad_id", ""),
 			trial.get("protocol_version", ""),
 			trial.get("level_id", ""),
@@ -329,6 +331,7 @@ func _study_dyads(trials: Array[Dictionary]) -> Array[Dictionary]:
 		var first: Dictionary = selected[0] as Dictionary
 		output.append({
 			"analysis_version": ExperimentProtocol.ANALYSIS_VERSION,
+			"station_id": first.get("station_id", ""),
 			"dyad_id": first.get("dyad_id", ""),
 			"protocol_version": first.get("protocol_version", ""),
 			"level_id": first.get("level_id", ""),
@@ -350,22 +353,19 @@ func _study_dyads(trials: Array[Dictionary]) -> Array[Dictionary]:
 
 static func session_directories_under(root_path: String) -> PackedStringArray:
 	var result: PackedStringArray = PackedStringArray()
-	if not DirAccess.dir_exists_absolute(root_path):
-		return result
-	for child: String in DirAccess.get_directories_at(root_path):
+	_collect_session_directories(root_path, result)
+	return result
+
+static func _collect_session_directories(path: String, result: PackedStringArray) -> void:
+	if not DirAccess.dir_exists_absolute(path):
+		return
+	if _looks_like_session_dir(path):
+		result.append(path)
+		return
+	for child: String in DirAccess.get_directories_at(path):
 		if child.begins_with("_"):
 			continue
-		var child_path: String = root_path.path_join(child)
-		if _looks_like_session_dir(child_path):
-			result.append(child_path)
-			continue
-		for grandchild: String in DirAccess.get_directories_at(child_path):
-			if grandchild.begins_with("_"):
-				continue
-			var session_path: String = child_path.path_join(grandchild)
-			if _looks_like_session_dir(session_path):
-				result.append(session_path)
-	return result
+		_collect_session_directories(path.path_join(child), result)
 
 static func resolve_session_paths(session_dir: String) -> Dictionary:
 	var raw_dir: String = session_dir.path_join(RAW_FOLDER)
