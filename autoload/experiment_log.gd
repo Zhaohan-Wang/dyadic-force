@@ -2,6 +2,8 @@ extends Node
 ## 唯一实验会话日志。每次应用运行只创建一个 session 目录，所有 trial/life 追加写入。
 ## 导出游戏可写目录：user://experiments/station-<采集站>/dyad-<组号>/<UTC时间>/raw|results|qc/
 
+signal export_finished(ok: bool, message: String)
+
 const ROOT_DIR: String = "user://experiments"
 const RAW_FOLDER: String = "raw"
 const RESULTS_FOLDER: String = "results"
@@ -89,6 +91,10 @@ var _flush_left: float = FLUSH_INTERVAL_S
 var _last_export_ok: bool = false
 var _last_export_message: String = "not_run"
 var _last_export_finished_us: int = 0
+## 派生分析只接触独立 FileAccess 与纯数据，不访问场景树；避免在通关物理帧阻塞主线程。
+var _export_thread: Thread = null
+var _export_requested: bool = false
+var _export_paths: Dictionary = {}
 
 var total_force_sum: float = 0.0
 var sample_count: int = 0
@@ -103,6 +109,7 @@ func _ready() -> void:
 		InputHub.joy_hotplug.connect(_on_joy_hotplug)
 
 func _process(delta: float) -> void:
+	_collect_finished_export()
 	if _session_id.is_empty():
 		return
 	_flush_left -= delta
@@ -169,16 +176,55 @@ func begin_life(note: String = "") -> void:
 
 func end_trial(outcome: String, note: String = "") -> bool:
 	if not _trial_active:
-		return _last_export_ok
+		return _last_export_message != "analysis_failed"
 	log_event("trial_end", {"outcome": outcome, "note": note})
 	_trial_active = false
+	# raw CSV 仍在终局立即落盘；完整 session 分析交给后台线程。
 	flush()
-	_last_export_ok = ExperimentAnalyzer.export_session(output_paths())
+	_last_export_ok = false
+	_last_export_message = "pending"
+	_last_export_finished_us = 0
+	_export_paths = output_paths().duplicate(true)
+	_export_requested = true
+	return _start_export_if_idle()
+
+## 同一时刻只运行一个全 session 导出；短时间连续结束试次时合并为最后一次重算。
+func _start_export_if_idle() -> bool:
+	if _export_thread != null or not _export_requested:
+		return true
+	_export_requested = false
+	_export_thread = Thread.new()
+	var error: Error = _export_thread.start(
+		Callable(self, "_export_session_in_background").bind(_export_paths.duplicate(true))
+	)
+	if error == OK:
+		return true
+	_export_thread = null
+	_last_export_message = "analysis_failed"
+	push_warning("ExperimentLog: could not start analysis thread (%s)" % error_string(error))
+	export_finished.emit(false, _last_export_message)
+	return false
+
+## 工作线程入口：禁止访问 Node、SceneTree 和 autoload 可变状态。
+func _export_session_in_background(paths: Dictionary) -> bool:
+	return ExperimentAnalyzer.export_session(paths)
+
+## Thread 完成后必须在主线程 wait_to_finish，随后再更新 UI 可见状态。
+func _collect_finished_export() -> void:
+	if _export_thread == null or _export_thread.is_alive():
+		return
+	var ok: bool = bool(_export_thread.wait_to_finish())
+	_export_thread = null
+	if _export_requested:
+		# 有更新的 raw 试次等待分析时，不把中间结果短暂标成“已保存”。
+		_start_export_if_idle()
+		return
+	_last_export_ok = ok
 	_last_export_finished_us = _clock_us()
-	_last_export_message = "saved" if _last_export_ok else "analysis_failed"
-	if not _last_export_ok:
+	_last_export_message = "saved" if ok else "analysis_failed"
+	if not ok:
 		push_warning("ExperimentLog: derived analysis export failed")
-	return _last_export_ok
+	export_finished.emit(ok, _last_export_message)
 
 ## 由关卡每帧刷新任务上下文，写入 frames.csv 扩展列。
 func set_task_context(
@@ -312,6 +358,36 @@ func close_session() -> void:
 	if _events_file != null:
 		_events_file.close()
 		_events_file = null
+	_finish_exports_before_shutdown()
+	# 同一应用进程返回标题后可能继续采下一组；释放旧 session 与计数器，
+	# 避免新组复用旧目录或因旧文件句柄已关闭而无法记录。
+	_session_id = ""
+	_session_dir = ""
+	_paths = {}
+	_trial_id = ""
+	_life_id = ""
+	_level_id = ""
+	_protocol_version = ""
+	_trial_serial = 0
+	_life_serial = 0
+	_level_attempt_index = 0
+	_attempts_by_level.clear()
+	_trial_active = false
+	GameState.session_id = ""
+
+## 只在关闭应用/测试清理时等待线程；此时阻塞不会影响游玩。
+func _finish_exports_before_shutdown() -> void:
+	if _export_thread != null:
+		var ok: bool = bool(_export_thread.wait_to_finish())
+		_export_thread = null
+		_last_export_ok = ok
+		_last_export_message = "saved" if ok else "analysis_failed"
+		_last_export_finished_us = _clock_us()
+	if _export_requested:
+		_export_requested = false
+		_last_export_ok = ExperimentAnalyzer.export_session(_export_paths)
+		_last_export_message = "saved" if _last_export_ok else "analysis_failed"
+		_last_export_finished_us = _clock_us()
 
 ## 旧名称保留给外部脚本；明确表示关闭整个应用级 session。
 func end_session() -> void:
@@ -435,7 +511,12 @@ func _ensure_session() -> bool:
 		"station_number", "dyad_id", "participant_A", "participant_B",
 		"relation_condition", "protocol_version", "side_assignment",
 	]:
-		if not _has_property(GameState, field):
+		var value: Variant = _identity_value(field, "")
+		if (
+			not _has_property(GameState, field)
+			or (field == "station_number" and int(value) < 1)
+			or (field != "station_number" and str(value).strip_edges().is_empty())
+		):
 			missing.append(field)
 	var app_version: String = str(ProjectSettings.get_setting("application/config/version", ""))
 	if app_version.is_empty():

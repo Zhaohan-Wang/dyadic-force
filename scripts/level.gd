@@ -51,6 +51,8 @@ var _active_segment_type: String = ""
 var _active_gate_id: String = ""
 
 func _ready() -> void:
+	# 进入关卡先收掉菜单音乐；玩家首次推动球后再启动关卡音乐。
+	AudioHub.stop_music()
 	_def = GameState.current_level
 	if _def == null:
 		_def = fallback_level
@@ -121,6 +123,7 @@ func _exit_tree() -> void:
 	get_tree().paused = false
 	Engine.time_scale = 1.0
 	HapticHub.end_level()
+	AudioHub.stop_level_music(0.0)
 	InputHub.reset_gains()
 	if not _trial_closed:
 		ExperimentLog.log_event("quit_mid_trial", {"note": "level_tree_exit"})
@@ -312,16 +315,20 @@ func _on_gate_failed(gate_id: String, payload: Dictionary) -> void:
 	# 失败也要有撞墙级反馈：震屏 + 手柄震动，但不扣血
 	var impact: float = maxf(float(payload.get("impact_strength", 120.0)), 120.0)
 	_split_screen.shake(impact)
+	AudioHub.play_gate_blocked()
 	HapticHub.pulse_impact(false)
 
 func _on_gate_opened(gate_id: String, payload: Dictionary) -> void:
 	_active_gate_id = ""
 	ExperimentLog.log_event("gate_opened", payload)
+	if _def.is_practice:
+		_tut_flags["gate_opened"] = true
 	_play_gate_break_feedback()
 
 ## 撞开门：短顿帧 + 爆发震屏 + 大震动，对齐球被撞碎的冲击感。
 func _play_gate_break_feedback() -> void:
 	_split_screen.burst_shake()
+	AudioHub.play_gate_break()
 	HapticHub.pulse_impact(true)
 	Engine.time_scale = 0.12
 	await get_tree().create_timer(0.055, true, false, true).timeout
@@ -583,6 +590,7 @@ func _on_ball_damaged(_amount: float, _hp: float) -> void:
 
 func _on_ball_collision(strength: float, collision_category: String = PixelBall.COLLISION_ORDINARY) -> void:
 	_perturb.notify_collision()
+	AudioHub.play_ball_impact(strength, collision_category)
 	ExperimentLog.log_event("collision", {
 		"impact_strength": strength,
 		"collision_category": collision_category,
@@ -624,6 +632,7 @@ func _respawn_sequence() -> void:
 
 	# 1) 撞烂：爆炸 + 顿帧 + 重震屏，球立刻消失冻住
 	BallBurst.play(_world, death_pos)
+	AudioHub.play_ball_burst()
 	_health.clear_visuals()
 	_ball.linear_velocity = Vector2.ZERO
 	_ball.angular_velocity = 0.0
@@ -673,6 +682,7 @@ func _on_goal_reached() -> void:
 	if _state.phase != LevelState.Phase.RUNNING and _state.phase != LevelState.Phase.READY:
 		return
 	InputHub.input_frozen = true
+	AudioHub.play_level_clear()
 	# 星级：通关 1 星 + 满血 1 星 + 剩余时间 ≥ 限时 1/4 再 1 星；教程恒 3 星
 	var full_hp: bool = _state.hp >= _state.max_hp - 0.01
 	var time_ok: bool = _state.timed and _def.time_limit > 0.0 \
@@ -685,7 +695,7 @@ func _on_goal_reached() -> void:
 	})
 	GameState.mark_cleared(_def.level_id)
 	_finish_trial("success")
-	# 派生 CSV/SVG 已在 end_trial 内同步落盘，结算快照因此包含真实导出状态。
+	# raw CSV 已落盘；派生分析在后台继续，不能阻塞传送演出。
 	GameState.last_result = _build_result(true, _state.stars)
 	await _teleport_sequence()
 	SceneDirector.go_to("res://scenes/results_screen.tscn")
@@ -816,7 +826,10 @@ func _build_result(success: bool, stars: int) -> Dictionary:
 
 func _on_phase_changed(phase: LevelState.Phase) -> void:
 	if phase == LevelState.Phase.RUNNING and not _respawning:
+		AudioHub.start_level_music()
 		ExperimentLog.log_event("run_start", {"phase": "running"})
+	elif phase == LevelState.Phase.FINISHED or phase == LevelState.Phase.FAILED:
+		AudioHub.stop_level_music()
 
 func _finish_trial(outcome: String, note: String = "") -> void:
 	if _trial_closed:
@@ -877,7 +890,10 @@ func _update_tutorial_progress() -> void:
 	# 5: 撞击掉血
 	elif step == 5 and _state.hp < _state.max_hp - 0.5:
 		_state.advance_tutorial()
-	# 6: 到达终点附近
-	elif step == 6:
+	# 6: 加速撞开教学门（若玩家提前撞开，也能在到达此步骤后继续）
+	elif step == 6 and bool(_tut_flags.get("gate_opened", false)):
+		_state.advance_tutorial()
+	# 7: 到达终点附近
+	elif step == 7:
 		if _ball.global_position.distance_to(_def.goal_point) < 120.0:
 			_state.advance_tutorial()

@@ -1,5 +1,5 @@
 extends SceneTree
-## 关卡布局冒烟：五关主题字段、时限、扰动组件与无紫条 HUD。
+## 关卡布局冒烟：教学门、五关主题字段、时限、扰动组件与无紫条 HUD。
 ## 用法：godot --headless --path . --script res://tools/level_layout_smoke.gd
 
 func _initialize() -> void:
@@ -26,6 +26,7 @@ func _run() -> void:
 		intro.queue_free()
 	input_hub.set("input_frozen", false)
 
+	var practice: Resource = load("res://levels/practice.tres")
 	var def1: Resource = load("res://levels/level_1.tres")
 	var def2: Resource = load("res://levels/level_2.tres")
 	var def3: Resource = load("res://levels/level_3.tres")
@@ -37,11 +38,17 @@ func _run() -> void:
 	assert(str(def3.get("challenge_type")) == "turn_coord", "L3 challenge")
 	assert(str(def4.get("challenge_type")) == "imbalance", "L4 challenge")
 	assert(str(def5.get("challenge_type")) == "route_choice", "L5 challenge")
+	assert((practice.get("gates") as Array).size() == 1, "tutorial must teach one gate")
 	assert((def1.get("gates") as Array).size() == 3, "L1 must have 3 gates")
 	# 第 3/5 关复用第 1 关的门作为节奏点：门只在共享路段上，不落在岔路分支里
 	assert((def3.get("gates") as Array).size() == 2, "L3 must reuse 2 gates")
 	assert((def4.get("gates") as Array).is_empty(), "L4 must stay gate-free")
 	assert((def5.get("gates") as Array).size() == 1, "L5 must reuse 1 gate")
+	for formal_def: Resource in [def1, def3, def5]:
+		for gate_def: Resource in formal_def.get("gates") as Array:
+			assert(is_equal_approx(float(gate_def.get("speed_threshold")), 240.0), "formal gate speed")
+			assert(is_equal_approx(float(gate_def.get("direction_cosine_min")), 0.68), "formal gate direction")
+			assert(is_equal_approx(float(gate_def.get("activity_ratio_min")), 0.58), "formal gate activity")
 	assert((def4.get("perturb_candidate_ids") as PackedStringArray).size() >= 3, "L4 candidates")
 	assert(bool(def4.get("perturb_continuous")), "L4 must perturb continuously")
 	assert(float(def4.get("perturb_duration_min_s")) >= 8.0, "L4 bursts must last longer")
@@ -50,8 +57,11 @@ func _run() -> void:
 	assert((def5.get("choice_forks") as Array).size() == 2, "L5 two forks")
 	assert(def1.get("dampen_window") == Vector2.ZERO, "legacy dampen unused")
 	assert(def3.get("dampen_window") == Vector2.ZERO, "L3 no time-window dampen")
-	assert(is_equal_approx(float(def1.get("time_limit")), 120.0), "official time 120")
-	assert(is_equal_approx(float(def4.get("time_limit")), 120.0), "L4 time 120")
+	assert(is_equal_approx(float(def1.get("time_limit")), 120.0), "L1 time 120")
+	assert(is_equal_approx(float(def2.get("time_limit")), 120.0), "L2 time 120")
+	assert(is_equal_approx(float(def3.get("time_limit")), 180.0), "L3 time 180")
+	assert(is_equal_approx(float(def4.get("time_limit")), 180.0), "L4 time 180")
+	assert(is_equal_approx(float(def5.get("time_limit")), 180.0), "L5 time 180")
 
 	var hud: Node = level.find_child("LevelHud", true, false)
 	assert(hud != null, "LevelHud missing")

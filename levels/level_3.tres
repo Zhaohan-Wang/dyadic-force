@@ -74,9 +74,9 @@ position = Vector2(750, 329)
 normal = Vector2(1, 0)
 opening_width = 180.0
 thickness = 18.0
-speed_threshold = 300.0
-direction_cosine_min = 0.84
-activity_ratio_min = 0.75
+speed_threshold = 240.0
+direction_cosine_min = 0.68
+activity_ratio_min = 0.58
 window_s = 0.4
 
 [sub_resource type="Resource" id="Gate_2"]
@@ -86,9 +86,9 @@ position = Vector2(1085, 1622)
 normal = Vector2(-1, 0)
 opening_width = 180.0
 thickness = 18.0
-speed_threshold = 300.0
-direction_cosine_min = 0.84
-activity_ratio_min = 0.75
+speed_threshold = 240.0
+direction_cosine_min = 0.68
+activity_ratio_min = 0.58
 window_s = 0.4
 
 [resource]
@@ -105,12 +105,12 @@ goal_point = Vector2(350, 1660)
 route_centerline = PackedVector2Array(330, 335, 523, 326, 713, 326, 900, 340, 1090, 402, 1282, 417, 1480, 400, 1660, 448, 1846, 480, 2029, 437, 2201, 502, 2268, 662, 2178, 819, 1988, 876, 1798, 850, 1620, 810, 1437, 867, 1254, 898, 1070, 837, 890, 828, 717, 891, 572, 1015, 593, 1199, 733, 1306, 915, 1316, 1111, 1276, 1306, 1285, 1496, 1329, 1686, 1301, 1884, 1271, 2067, 1305, 2201, 1416, 2136, 1563, 1955, 1589, 1760, 1626, 1577, 1658, 1380, 1643, 1202, 1611, 1010, 1631, 814, 1647, 619, 1621, 431, 1643, 350, 1660)
 route_corridor_half_width = 150.0
 route_completion_direction = Vector2(-1, 0)
-time_limit = 120.0
+time_limit = 180.0
 target_duration_s = 80.0
 ball_max_hp = 3.0
 death_time_penalty = 7.0
 tutorial_steps = PackedStringArray()
-intro_lines = PackedStringArray("FOLLOW THE TRAIL THROUGH THE WOODS.", "REACH THE PORTAL WITHIN 120 SECONDS.")
+intro_lines = PackedStringArray("FOLLOW THE TRAIL THROUGH THE WOODS.", "REACH THE PORTAL WITHIN 180 SECONDS.")
 dampen_window = Vector2(0, 0)
 is_practice = false
 segments = Array[ExtResource("2")]([SubResource("Seg_t1"), SubResource("Seg_t2"), SubResource("Seg_t3"), SubResource("Seg_t4"), SubResource("Seg_t5"), SubResource("Seg_t6"), SubResource("Seg_t7"), SubResource("Seg_rec1"), SubResource("Seg_rec2")])

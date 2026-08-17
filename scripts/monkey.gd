@@ -212,7 +212,17 @@ func _build_animation() -> void:
 	_anim.sprite_frames = frames
 	_anim.offset = BODY_CENTER  # 脚底对齐节点原点（球的轮缘锚点）
 	_visual.add_child(_anim)
+	_anim.frame_changed.connect(_on_animation_frame_changed)
 	_anim.play(&"idle")
+
+## 跑步循环每四帧落脚一次；AudioHub 还会按玩家槽位做节流和轻微变调。
+func _on_animation_frame_changed() -> void:
+	if (
+		_anim.animation == &"run"
+		and (_anim.frame == 1 or _anim.frame == 5)
+		and input_vector != Vector2.ZERO
+	):
+		AudioHub.play_footstep(player_slot)
 
 ## 把一条横向精灵表注册为循环动画
 func _add_strip(frames: SpriteFrames, anim_name: StringName, tex: Texture2D, count: int, fps: float) -> void:

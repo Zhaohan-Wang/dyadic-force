@@ -578,6 +578,7 @@ static func make_big_button(text: String, font_px: int = 28, min_size: Vector2 =
 	var spring: UiSpring = UiSpring.attach(btn, 0.4, 0.3)
 	btn.focus_entered.connect(func() -> void: spring.set_scale_target(1.05))
 	btn.focus_exited.connect(func() -> void: spring.set_scale_target(1.0))
+	btn.pressed.connect(AudioHub.play_ui_click)
 	btn.mouse_entered.connect(func() -> void:
 		if not btn.disabled:
 			btn.grab_focus()
@@ -615,6 +616,7 @@ static func make_compact_button(text: String, min_size: Vector2 = Vector2(160, 5
 	var spring: UiSpring = UiSpring.attach(button, 0.35, 0.3)
 	button.focus_entered.connect(func() -> void: spring.set_scale_target(1.06))
 	button.focus_exited.connect(func() -> void: spring.set_scale_target(1.0))
+	button.pressed.connect(AudioHub.play_ui_click)
 	button.mouse_entered.connect(func() -> void:
 		if not button.disabled:
 			button.grab_focus()

@@ -7,6 +7,7 @@ const PAGES: Array[String] = [
 	"res://scenes/experiment_setup_screen.tscn",
 	"res://scenes/pairing_screen.tscn",
 	"res://scenes/calibration_screen.tscn",
+	"res://scenes/guide_screen.tscn",
 	"res://scenes/level_select.tscn",
 	"res://scenes/results_screen.tscn",
 ]
@@ -16,6 +17,7 @@ const ZH_REQUIRED: Dictionary[String, String] = {
 	"res://scenes/experiment_setup_screen.tscn": "实验信息录入",
 	"res://scenes/pairing_screen.tscn": "玩家配对",
 	"res://scenes/calibration_screen.tscn": "输入检测",
+	"res://scenes/guide_screen.tscn": "游戏教学",
 	"res://scenes/level_select.tscn": "选择关卡",
 	"res://scenes/results_screen.tscn": "通关！",
 }
@@ -25,6 +27,7 @@ const EN_REQUIRED: Dictionary[String, String] = {
 	"res://scenes/experiment_setup_screen.tscn": "EXPERIMENT SETUP",
 	"res://scenes/pairing_screen.tscn": "PAIR UP",
 	"res://scenes/calibration_screen.tscn": "INPUT CHECK",
+	"res://scenes/guide_screen.tscn": "HOW TO PLAY",
 	"res://scenes/level_select.tscn": "SELECT LEVEL",
 	"res://scenes/results_screen.tscn": "LEVEL CLEAR!",
 }

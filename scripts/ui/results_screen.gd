@@ -166,7 +166,13 @@ const PANEL_CHROME_HEIGHT: float = 640.0
 ## 单行统计的占位高度（行高 + 间距）
 const STAT_ROW_HEIGHT: float = 42.0
 
+var _data_status_label: Label = null
+var _open_data_button: Button = null
+var _data_directory: String = ""
+
 func _ready() -> void:
+	if not ExperimentLog.export_finished.is_connected(_on_export_finished):
+		ExperimentLog.export_finished.connect(_on_export_finished)
 	_build()
 
 func _build() -> void:
@@ -309,7 +315,7 @@ func _build() -> void:
 	actions.add_child(select)
 
 	var next_path: String = GameState.next_level_path(str(result.get("level_id", "")))
-	if success and next_path != "":
+	if next_path != "" and (success or GameState.experiment_mode):
 		var next_btn: Button = _make_icon_button(GameState.ui("下一关", "NEXT"), "next")
 		next_btn.pressed.connect(func() -> void:
 			GameState.current_level = load(next_path) as LevelDef
@@ -319,10 +325,7 @@ func _build() -> void:
 		next_btn.grab_focus.call_deferred()
 	else:
 		var title_btn: Button = _make_icon_button(GameState.ui("标题", "TITLE"), "home")
-		title_btn.pressed.connect(func() -> void:
-			InputHub.clear_slots()
-			SceneDirector.go_to("res://scenes/title_screen.tscn")
-		)
+		title_btn.pressed.connect(_finish_session_and_go_to_title)
 		actions.add_child(title_btn)
 		retry.grab_focus.call_deferred()
 
@@ -380,29 +383,42 @@ func _make_data_status(result: Dictionary) -> Control:
 	row.custom_minimum_size = Vector2(0, 60)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 
-	var directory: String = str(result.get("data_directory", ""))
-	var export_ok: bool = bool(result.get("data_export_ok", false))
-	var status_text: String = (
-		GameState.ui("保存成功", "SAVED")
-		if export_ok
-		else GameState.ui("保存失败", "SAVE FAILED")
-	)
-	var label: Label = MenuKit.make_panel_label(status_text, 22, 0.72 if export_ok else 1.0)
-	if not export_ok:
-		label.modulate = MenuKit.COL_DANGER
-	row.add_child(label)
+	_data_directory = str(result.get("data_directory", ""))
+	_data_status_label = MenuKit.make_panel_label("", 22, 0.72)
+	row.add_child(_data_status_label)
 
-	var open_button: Button = MenuKit.make_big_button(
+	_open_data_button = MenuKit.make_big_button(
 		GameState.ui("打开文件夹", "OPEN FOLDER"), 18, Vector2(200, 56)
 	)
-	open_button.disabled = (
-		not export_ok
-		or directory.is_empty()
-		or not DirAccess.dir_exists_absolute(directory)
+	_open_data_button.pressed.connect(func() -> void: _open_data_directory(_data_directory))
+	row.add_child(_open_data_button)
+	var live_status: Dictionary = ExperimentLog.summary_dict()
+	_refresh_data_status(
+		bool(live_status.get("data_export_ok", false)),
+		str(live_status.get("data_export_message", result.get("data_export_message", "not_run"))),
 	)
-	open_button.pressed.connect(func() -> void: _open_data_directory(directory))
-	row.add_child(open_button)
 	return row
+
+func _on_export_finished(ok: bool, message: String) -> void:
+	_refresh_data_status(ok, message)
+
+func _refresh_data_status(ok: bool, message: String) -> void:
+	if _data_status_label == null or _open_data_button == null:
+		return
+	if message == "pending":
+		_data_status_label.text = GameState.ui("正在保存…", "SAVING…")
+		_data_status_label.modulate = Color.WHITE
+	elif ok:
+		_data_status_label.text = GameState.ui("保存成功", "SAVED")
+		_data_status_label.modulate = Color.WHITE
+	else:
+		_data_status_label.text = GameState.ui("保存失败", "SAVE FAILED")
+		_data_status_label.modulate = MenuKit.COL_DANGER
+	_open_data_button.disabled = (
+		not ok
+		or _data_directory.is_empty()
+		or not DirAccess.dir_exists_absolute(_data_directory)
+	)
 
 func _open_data_directory(directory: String) -> void:
 	if directory.is_empty() or not DirAccess.dir_exists_absolute(directory):
@@ -422,3 +438,10 @@ func _on_retry() -> void:
 		SceneDirector.go_to("res://scenes/level.tscn")
 	else:
 		SceneDirector.go_to("res://scenes/level_select.tscn")
+
+func _finish_session_and_go_to_title() -> void:
+	if GameState.experiment_mode:
+		ExperimentLog.close_session()
+		GameState.experiment_setup_locked = false
+	InputHub.clear_slots()
+	SceneDirector.go_to("res://scenes/title_screen.tscn")

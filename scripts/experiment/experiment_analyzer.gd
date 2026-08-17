@@ -178,18 +178,27 @@ static func analyze_session(paths: Dictionary, protocol: ExperimentProtocol = nu
 				continue
 			on_count += 1
 			var slot: String = str(event.get("slot", ""))
-			var offset_ms: float = _last_time_ms(trial_frames, trial_events)
+			var trial_end_ms: float = _last_time_ms(trial_frames, trial_events)
+			var offset_ms: float = trial_end_ms
+			var observation_end_ms: float = trial_end_ms
 			for later_index: int in range(event_index + 1, trial_events.size()):
 				var later: Dictionary = trial_events[later_index]
+				var later_type: String = str(later.get("event_type", ""))
+				if later_type == "perturb_on":
+					observation_end_ms = minf(
+						observation_end_ms,
+						_number(later.get("trial_elapsed_ms", observation_end_ms)),
+					)
+					break
 				if (
-					str(later.get("event_type", "")) == "perturb_off"
+					later_type == "perturb_off"
 					and str(later.get("slot", "")) == slot
 				):
 					offset_ms = _number(later.get("trial_elapsed_ms", offset_ms))
-					break
+			offset_ms = minf(offset_ms, observation_end_ms)
 			var perturbation_id: String = "%s-P%03d" % [trial_id, on_count]
 			var perturbation: Dictionary = analyze_perturbation(
-				trial_frames, event, offset_ms, active_protocol, force_scale
+				trial_frames, event, offset_ms, active_protocol, force_scale, observation_end_ms
 			)
 			perturbation["analysis_version"] = ExperimentProtocol.ANALYSIS_VERSION
 			perturbation["session_id"] = session_id
@@ -674,8 +683,15 @@ static func analyze_perturbation(
 	offset_ms: float,
 	protocol: ExperimentProtocol,
 	force_scale: float = 1.0,
+	observation_end_ms: float = INF,
 ) -> Dictionary:
 	var onset_ms: float = _number(on_event.get("trial_elapsed_ms", 0.0))
+	var frame_end_ms: float = _last_time_ms(frames, [])
+	var analysis_end_ms: float = (
+		frame_end_ms if observation_end_ms == INF else observation_end_ms
+	)
+	analysis_end_ms = maxf(analysis_end_ms, onset_ms)
+	offset_ms = clampf(offset_ms, onset_ms, analysis_end_ms)
 	var slot: int = int(_number(on_event.get("slot", -1)))
 	var onset_frame: Dictionary = _nearest_frame(frames, onset_ms)
 	var perturbed: String = "A" if int(_number(onset_frame.get("A_slot", 0))) == slot else "B"
@@ -714,6 +730,8 @@ static func analyze_perturbation(
 		var time_ms: float = _number(frame.get("trial_elapsed_ms", 0.0))
 		if time_ms < onset_ms:
 			continue
+		if time_ms > offset_ms:
+			break
 		var delta_force: Vector2 = _force(frame, responder) - baseline_force
 		var projection: float = delta_force.dot(direction) / scale
 		peak_projection = maxf(peak_projection, projection)
@@ -722,10 +740,13 @@ static func analyze_perturbation(
 				candidate_start = time_ms
 			if time_ms - candidate_start >= protocol.compensation_sustain_ms:
 				var check_time: float = candidate_start + protocol.compensation_error_check_ms
+				if check_time > offset_ms:
+					continue
 				var check_frame: Dictionary = _nearest_frame(frames, check_time)
 				if (
 					not check_frame.is_empty()
 					and _number(check_frame.get("trial_elapsed_ms", 0.0)) >= check_time - 50.0
+					and _number(check_frame.get("trial_elapsed_ms", INF)) <= offset_ms
 					and _number(check_frame.get("route_error_distance", INF))
 					<= baseline_error * (1.0 - protocol.compensation_error_drop_ratio)
 				):
@@ -735,7 +756,7 @@ static func analyze_perturbation(
 			candidate_start = -1.0
 	result["compensation_peak_projection"] = peak_projection if peak_projection > -INF else null
 	if compensation_onset == null:
-		var observed_until: float = _last_time_ms(frames, [])
+		var observed_until: float = offset_ms
 		result["compensation_status"] = (
 			"censored" if observed_until < onset_ms + protocol.compensation_error_check_ms
 			else "no_valid_compensation"
@@ -747,10 +768,14 @@ static func analyze_perturbation(
 		result["compensation_onset_ms"] = compensation_onset
 		result["compensation_reaction_ms"] = float(compensation_onset) - onset_ms
 
-	var recovery: Dictionary = _recovery(frames, baseline, onset_ms, protocol)
+	var recovery: Dictionary = _recovery(
+		frames, baseline, onset_ms, offset_ms, analysis_end_ms, protocol
+	)
 	for key: Variant in recovery:
 		result[key] = recovery[key]
-	var overshoot: Dictionary = _overshoot(frames, baseline, onset_ms, protocol)
+	var overshoot: Dictionary = _overshoot(
+		frames, baseline, onset_ms, analysis_end_ms, protocol
+	)
 	for key: Variant in overshoot:
 		result[key] = overshoot[key]
 	return result
@@ -836,43 +861,36 @@ static func _recovery(
 	frames: Array[Dictionary],
 	baseline: Array[Dictionary],
 	onset_ms: float,
+	search_start_ms: float,
+	observation_end_ms: float,
 	protocol: ExperimentProtocol,
 ) -> Dictionary:
-	var fields: PackedStringArray = [
-		"route_error_distance", "speed", "angular_velocity_rad_s",
-	]
-	var medians: Array[float] = []
-	var tolerances: Array[float] = []
-	var floors: Array[float] = [
+	# 路线误差是跨弯道仍有稳定含义的任务状态。速度和角速度会随路径自然变化，
+	# 用扰动前 200ms 的窄带同时约束三者会把正常前进误判为永不恢复。
+	# “不差于基线 + 稳健容差”为单侧标准，因此补偿后误差进一步下降也算恢复。
+	var values: Array[float] = _field_values(baseline, "route_error_distance")
+	var median: Variant = _percentile(values, 0.5)
+	var center: float = float(median) if median != null else 0.0
+	var deviations: Array[float] = []
+	for value: float in values:
+		deviations.append(absf(value - center))
+	var mad: Variant = _percentile(deviations, 0.5)
+	var tolerance: float = maxf(
 		protocol.recovery_error_floor,
-		protocol.recovery_speed_floor,
-		protocol.recovery_angular_speed_floor,
-	]
-	for i: int in fields.size():
-		var values: Array[float] = _field_values(baseline, fields[i], fields[i] == "angular_velocity_rad_s")
-		var median: Variant = _percentile(values, 0.5)
-		var center: float = float(median) if median != null else 0.0
-		medians.append(center)
-		var deviations: Array[float] = []
-		for value: float in values:
-			deviations.append(absf(value - center))
-		var mad: Variant = _percentile(deviations, 0.5)
-		tolerances.append(maxf(floors[i], protocol.recovery_mad_multiplier * (float(mad) if mad != null else 0.0)))
+		protocol.recovery_mad_multiplier * (float(mad) if mad != null else 0.0),
+	)
 	var candidate: float = -1.0
 	var last_time: float = onset_ms
 	for frame: Dictionary in frames:
 		var time_ms: float = _number(frame.get("trial_elapsed_ms", 0.0))
-		if time_ms < onset_ms:
+		if time_ms < search_start_ms:
 			continue
+		if time_ms > observation_end_ms:
+			break
 		last_time = time_ms
-		var stable: bool = true
-		for i: int in fields.size():
-			var value: float = _number(frame.get(fields[i], 0.0))
-			if fields[i] == "angular_velocity_rad_s":
-				value = absf(value)
-			if absf(value - medians[i]) > tolerances[i]:
-				stable = false
-				break
+		var stable: bool = (
+			_number(frame.get("route_error_distance", INF)) <= center + tolerance
+		)
 		if stable:
 			if candidate < 0.0:
 				candidate = time_ms
@@ -898,6 +916,7 @@ static func _overshoot(
 	frames: Array[Dictionary],
 	baseline: Array[Dictionary],
 	onset_ms: float,
+	observation_end_ms: float,
 	protocol: ExperimentProtocol,
 ) -> Dictionary:
 	var initial: float = _median_field(baseline, "route_signed_error")
@@ -911,8 +930,11 @@ static func _overshoot(
 	var crossings: int = 0
 	var first_reverse_max: float = 0.0
 	for frame: Dictionary in frames:
-		if _number(frame.get("trial_elapsed_ms", 0.0)) < onset_ms:
+		var time_ms: float = _number(frame.get("trial_elapsed_ms", 0.0))
+		if time_ms < onset_ms:
 			continue
+		if time_ms > observation_end_ms:
+			break
 		var signed_error: float = _number(frame.get("route_signed_error", 0.0))
 		var side: int = 0
 		if signed_error * initial_sign > protocol.overshoot_hysteresis:

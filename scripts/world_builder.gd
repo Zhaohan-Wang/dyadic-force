@@ -165,7 +165,7 @@ func _bush_defs() -> Array[PropDef]:
 	defs.append(PropDef.new(Rect2(16, 48, 16, 16), 8.5))
 	return defs
 
-## 手工动线布局：左出生 → 中间两组交错小障碍（轻微 S 形绕行）→ 右传送门。
+## 手工动线布局：左出生 → 前半段两组交错小障碍 → 长直线助跑区 → 教学门与传送门。
 ## 上下沿用栅栏框出边界，四角摆装饰树；全部经 _make_prop 走 y-sort，遮挡正确。
 func _build_lane_layout() -> void:
 	var w: float = float(_island_w * TILE_SIZE)
@@ -185,23 +185,24 @@ func _build_lane_layout() -> void:
 	]:
 		_world.add_child(_make_prop(trees[0], corner))
 
-	# 中段障碍一：偏上的大树，逼球从下方绕
-	_world.add_child(_make_prop(trees[1], Vector2(w * 0.38, cy - 30.0)))
-	# 中段障碍二：偏下的石头组，逼球回到上方
+	# 障碍全部收在前半段：先绕过大树，再从石头上方回到中轴。
+	_world.add_child(_make_prop(trees[1], Vector2(w * 0.28, cy - 30.0)))
 	var rocks: Array[PropDef] = _rock_defs()
-	_world.add_child(_make_prop(rocks[0], Vector2(w * 0.60, cy + 44.0)))
-	_world.add_child(_make_prop(rocks[1], Vector2(w * 0.60 + 22.0, cy + 52.0)))
+	_world.add_child(_make_prop(rocks[0], Vector2(w * 0.42, cy + 44.0)))
+	_world.add_child(_make_prop(rocks[1], Vector2(w * 0.42 + 22.0, cy + 52.0)))
 
-	# 路边点缀：小树 + 灌木，避开动线中轴
+	# 路边点缀也限制在前半段；x >= w * 0.52 后不再生成任何有碰撞杂物，
+	# 给教学门留下约 300px 的完整直线助跑区。
 	var bushes: Array[PropDef] = _bush_defs()
-	_world.add_child(_make_prop(trees[2], Vector2(w * 0.24, h - 44.0)))
-	_world.add_child(_make_prop(bushes[0], Vector2(w * 0.48, 46.0)))
-	_world.add_child(_make_prop(bushes[1], Vector2(w * 0.76, h - 46.0)))
+	_world.add_child(_make_prop(trees[2], Vector2(w * 0.20, h - 44.0)))
+	_world.add_child(_make_prop(bushes[0], Vector2(w * 0.34, 46.0)))
+	_world.add_child(_make_prop(bushes[1], Vector2(w * 0.40, h - 46.0)))
 
-	# 教程动线几乎水平：只在中轴放右箭头，避开障碍脚下
+	# 后两枚箭头明确标出无遮挡助跑直道；箭头本身没有碰撞。
 	_spawn_guide_arrow(Vector2(160.0, cy), Vector2.RIGHT)
 	_spawn_guide_arrow(Vector2(300.0, cy + 16.0), Vector2.RIGHT)  # S 弯下缘
-	_spawn_guide_arrow(Vector2(400.0, cy), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(520.0, cy), Vector2.RIGHT)
+	_spawn_guide_arrow(Vector2(660.0, cy), Vector2.RIGHT)
 
 	# 地面小草花：加密 decor 层（无碰撞、永远在球下面）
 	var rng: RandomNumberGenerator = RandomNumberGenerator.new()

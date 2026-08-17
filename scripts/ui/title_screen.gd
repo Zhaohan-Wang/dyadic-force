@@ -441,6 +441,7 @@ func _make_slide_switch_row(text: String, initial: bool, on_changed: Callable) -
 	switch_btn.focus_exited.connect(func() -> void: spring.set_scale_target(1.0))
 	switch_btn.mouse_entered.connect(func() -> void: switch_btn.grab_focus())
 	switch_btn.toggled.connect(func(on: bool) -> void:
+		AudioHub.play_ui_click()
 		track.add_theme_stylebox_override("panel", track_on if on else track_off)
 		var tween: Tween = switch_btn.create_tween()
 		tween.tween_property(knob, "position:x", KNOB_ON_X if on else KNOB_OFF_X, 0.12) \
@@ -484,6 +485,7 @@ func _make_toggle_row(text: String, initial: bool, on_changed: Callable) -> Cont
 	toggle.focus_exited.connect(func() -> void: spring.set_scale_target(1.0))
 	toggle.mouse_entered.connect(func() -> void: toggle.grab_focus())
 	toggle.toggled.connect(func(on: bool) -> void:
+		AudioHub.play_ui_click()
 		check.visible = on
 		spring.punch(0.3)
 		on_changed.call(on)
@@ -515,6 +517,11 @@ func _input(event: InputEvent) -> void:
 func _on_start() -> void:
 	if not GameState.experiment_mode:
 		# 非实验模式跳过编号/组别录入，也不应带着上次锁定的实验元数据。
+		GameState.experiment_setup_locked = false
+	else:
+		# 标题页是组间边界；即使上一流程异常返回，也先关闭旧 session，
+		# 确保下一组获得新的 UTC 目录与独立 trial 计数。
+		ExperimentLog.close_session()
 		GameState.experiment_setup_locked = false
 	SceneDirector.go_to(GameState.start_flow_scene())
 

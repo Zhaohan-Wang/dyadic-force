@@ -176,7 +176,7 @@
 
 结束后：
 
-- [ ] 当次目录为 `user://experiments/dyad-S<站号>-D###/<UTC>/`。
+- [ ] 当次目录为 `user://experiments/station-<采集站>/dyad-<组号>/<UTC>/`。
 - [ ] `raw/` 三表存在，结算未报导出失败。
 - [ ] 第 4 关 events 中有 `perturb_on`。
 - [ ] 访谈/异常已登记，映射表未放入该目录。
@@ -190,8 +190,9 @@
 
 1. 用 Godot 打开本项目，或运行导出的游戏。
 2. 标题页打开 **实验模式**（会写入设置，下次还在）。调试模式保持关闭，除非要调物理。
-3. 点 **打开数据文件夹**，确认能进 `experiments/`。macOS 上大约是：
-   `~/Library/Application Support/Godot/app_userdata/DyadicForce/experiments/`
+3. 点 **打开数据文件夹**，确认能进 `experiments/`。macOS 上：
+   - 编辑器运行：`~/Library/Application Support/Godot/app_userdata/DyadicForce/experiments/`
+   - 导出的 `.app`：`~/Library/Application Support/DyadicForce/experiments/`
 4. 在游戏外准备三份独立文件，**不要放进上述目录，也不要进 git**：
    - 知情同意书
    - 编号映射表：`F01A` ↔ 同意书编号（不要写姓名进 CSV）

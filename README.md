@@ -52,6 +52,10 @@
 
 `user://experiments/station-1/dyad-F01/<UTC时间>/raw|results/`
 
+macOS 导出的 `.app` 对应：
+
+`~/Library/Application Support/DyadicForce/experiments/`
+
 - `raw/`：`session.csv` / `frames.csv` / `events.csv`，不可覆盖
 - `results/`：有数据才写结果表
 - 全部结束后用 `tools/aggregate_experiments.gd` 汇总到 `_aggregate/`

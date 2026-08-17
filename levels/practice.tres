@@ -1,23 +1,37 @@
-[gd_resource type="Resource" script_class="LevelDef" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="LevelDef" load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://resources/level_def.gd" id="1"]
+[ext_resource type="Script" path="res://resources/gate_def.gd" id="2"]
+
+[sub_resource type="Resource" id="Gate_tutorial"]
+script = ExtResource("2")
+gate_id = "tutorial_gate"
+position = Vector2(780, 128)
+normal = Vector2(1, 0)
+opening_width = 180.0
+thickness = 18.0
+speed_threshold = 220.0
+direction_cosine_min = 0.6
+activity_ratio_min = 0.5
+window_s = 0.4
 
 [resource]
 script = ExtResource("1")
 level_name = "TUTORIAL"
 level_id = "practice"
 challenge_type = "tutorial"
-island_size = Vector2i(36, 16)
+island_size = Vector2i(60, 16)
 layout_seed = 20260801
 obstacle_density = 0.7
 layout_style = "lane"
 spawn_point = Vector2(96, 128)
-goal_point = Vector2(456, 128)
-route_centerline = PackedVector2Array(96, 128, 220, 128, 340, 128, 456, 128)
+goal_point = Vector2(872, 128)
+route_centerline = PackedVector2Array(96, 128, 190, 128, 280, 170, 400, 92, 520, 128, 650, 128, 780, 128, 872, 128)
 route_corridor_half_width = 80.0
 route_completion_direction = Vector2(1, 0)
 time_limit = 0.0
 ball_max_hp = 3.0
 death_time_penalty = 0.0
-tutorial_steps = PackedStringArray("FULL PUSH TO START AND ACCELERATE", "USE HALF PUSH TO STEER AND AIM", "RELEASE EARLY TO BRAKE BEFORE TURNS", "PUSH THE SAME WAY TO ROLL TOGETHER", "PUSH OPPOSITE WAYS TO SPIN IN PLACE", "HARD HITS HURT THE BALL - BE CAREFUL", "PARK THE BALL ON THE SWIRLING PORTAL")
+tutorial_steps = PackedStringArray("FULL PUSH TO START AND ACCELERATE", "USE HALF PUSH TO STEER AND AIM", "RELEASE EARLY TO BRAKE BEFORE TURNS", "PUSH THE SAME WAY TO ROLL TOGETHER", "PUSH OPPOSITE WAYS TO SPIN IN PLACE", "HARD HITS HURT THE BALL - BE CAREFUL", "BUILD SPEED TO BREAK THROUGH THE GATE", "PARK THE BALL ON THE SWIRLING PORTAL")
 is_practice = true
+gates = Array[ExtResource("2")]([SubResource("Gate_tutorial")])

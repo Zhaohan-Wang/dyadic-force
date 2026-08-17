@@ -1,6 +1,6 @@
 # 实验数据字典
 
-本文档对应原始 schema `3.2.0` 与分析版本 `2.2.0`。当前现场流程是单次可行性预实验（协议 `pilot-1.0`），详见 [预实验 SOP](pilot_experiment_protocol.md)。
+本文档对应原始 schema `3.2.0` 与分析版本 `2.3.0`。当前现场流程是单次可行性预实验（协议 `pilot-1.0`），详见 [预实验 SOP](pilot_experiment_protocol.md)。
 
 一组实验（一次应用运行）只产生两类文件：
 
@@ -17,8 +17,10 @@
   - `results/`：有数据才写出的结果表，以及 `analysis_manifest.json`。
   - `qc/`：仅在显式生成复核包时出现。
 - 标题页「打开数据文件夹」打开 `user://experiments/`；结算页打开当次 session 目录。
-- macOS 导出后的实际位置在 Godot 用户数据目录下，可用
-  `ProjectSettings.globalize_path("user://experiments")` 转为绝对路径。
+- macOS 实际位置：
+  - 编辑器：`~/Library/Application Support/Godot/app_userdata/DyadicForce/experiments/`
+  - 导出的 `.app`：`~/Library/Application Support/DyadicForce/experiments/`
+  也可用 `ProjectSettings.globalize_path("user://experiments")` 转绝对路径。
 - 所有 CSV 使用 UTF-8、CRLF 行尾、逗号分隔和 RFC 4180 双引号转义；固定列顺序。
 - 缺失值统一为空字段，不使用 `0`、`NA` 或 `-1` 代替未知值。状态/删失字段会解释为何为空。
 - 布尔值写为 `0/1`。浮点数最多保留 9 位有效小数。
@@ -30,7 +32,7 @@
 | 字段 | 类型 / 单位 | 定义 |
 |---|---|---|
 | `schema_version` | 字符串 | 原始表结构版本，当前为 `3.2.0`。 |
-| `analysis_version` | 字符串 | 结果算法版本，当前为 `2.2.0`。 |
+| `analysis_version` | 字符串 | 结果算法版本，当前为 `2.3.0`。 |
 | `session_id` | 字符串 | 一次应用运行的唯一 ID，格式 `<采集站>-<组号>_<UTC文件夹名>`，例如 `1-F01_2026-08-15_032500Z`。 |
 | `trial_id` | 字符串 | 每次关卡启动的唯一 ID，格式 `<session>-T####`。 |
 | `life_id` | 字符串 | trial 内生命 ID，格式 `<trial>-L###`；死亡重生递增，死亡不新建 trial。 |
@@ -256,13 +258,13 @@ READY/RUNNING 阶段每个物理帧至多一行，A/B 按参与者而不是设�
 | `onset_ms`, `offset_ms` | 键 | ms | 扰动开始及同 slot 后续 `perturb_off`；无 off 时为观察终点。 |
 | `perturbed_participant`, `perturbed_slot`, `gain` | 键 | — | 受扰者 A/B、设备槽和增益。 |
 | `compensation_status` | 核心 | 枚举 | `valid`、`no_valid_compensation`、`not_eligible`、`censored`。 |
-| `compensation_onset_ms` | 核心 | ms/空 | 未受扰者相对扰动前 200 ms 中位力的 `ΔF`，沿 `-error` 投影 ≥0.12 且持续 100 ms 的起点；还要求 400 ms 后误差至少下降 5%。 |
+| `compensation_onset_ms` | 核心 | ms/空 | 未受扰者相对扰动前 200 ms 中位力的 `ΔF`，沿 `-error` 投影 ≥0.12 且持续 100 ms 的起点；还要求 400 ms 后误差至少下降 5%。搜索仅限 `onset_ms..offset_ms`，扰动结束后的动作不回填为本次补偿。 |
 | `compensation_reaction_ms` | 核心 | ms/空 | `compensation_onset_ms - onset_ms`。 |
 | `recovery_status` | 核心 | 枚举 | `recovered`、`censored`、`not_eligible`。 |
-| `recovery_time_ms` | 核心 | ms/空 | 误差、速度、角速度均回到扰动前中位数 ± `max(协议下限, 3×MAD)` 并持续 500 ms 的稳定段起点相对 onset。 |
+| `recovery_time_ms` | 核心 | ms/空 | 从 `offset_ms` 起搜索；路线误差不高于扰动前中位数 + `max(3 px, 3×MAD)` 并持续 500 ms 的稳定段起点相对 onset。该标准为单侧：误差进一步降低也视为恢复。 |
 | `recovery_stable_time_ms` | 核心 | ms/空 | 供生存/删失分析直接读取：已恢复时等于 `recovery_time_ms`；未恢复时写最后观察上限，并由 `recovery_censored=1` 标记右删失；仅 `not_eligible` 为空。 |
-| `recovery_censored` | 质量 | 0/1 | trial 结束前未确认 500 ms 稳定则为 1。 |
-| `recovery_observation_ms` | 质量 | ms | 实际观察上限；恢复时为确认稳定的时点，删失时为最后观测。 |
+| `recovery_censored` | 质量 | 0/1 | 下次 `perturb_on` 或 trial 结束前未确认 500 ms 稳定则为 1。 |
+| `recovery_observation_ms` | 质量 | ms | 实际观察上限；恢复时为确认稳定的时点，删失时为下次扰动前或 trial 末的最后观测。 |
 | `compensation_peak_projection` | 探索 | 归一化力/空 | 观察期最大 `ΔF·(-error_unit)/force_max`。 |
 | `overshoot_status` | 探索 | 枚举 | `overshoot`、`none`、`not_eligible`。初始有符号误差小于 2 px 不适用。 |
 | `overshoot_first_reverse_max` | 探索 | px/空 | 首次到达反侧后观测到的最大反向绝对误差。 |
@@ -338,7 +340,7 @@ godot --headless --path . --script res://tools/aggregate_experiments.gd -- \
 
 规则：
 
-- 只纳入 schema `3.2.0` 且 analysis `2.2.0` 的 session。
+- 只纳入 schema `3.2.0` 且 analysis `2.3.0` 的 session。
 - 版本不一致时拒绝静默混合，只写报告。
 - 主键必须唯一：`session_id`、`trial_id`、`perturbation_id`，以及组件表的复合键。
 - `monotonic_time_us` 不可跨 session 比较；跨组分析用 `started_utc` 与 `trial_elapsed_ms`。
@@ -347,7 +349,7 @@ godot --headless --path . --script res://tools/aggregate_experiments.gd -- \
 
 - 扰动前窗口为空或基线误差向量 `<2 px`：补偿、恢复、过冲为 `not_eligible`。
 - 400 ms 误差检查窗口尚未完整观察到：补偿为 `censored`，而不是“无补偿”。
-- trial 结束前未出现连续 500 ms 回稳：`recovery_censored=1`，保存实际 `recovery_observation_ms`。
+- 从 `perturb_off` 后开始搜索；下次 `perturb_on` 或 trial 结束前未出现连续 500 ms 回稳：`recovery_censored=1`，保存实际 `recovery_observation_ms`。
 - 中断恢复只追加 `aborted_recovered` 和 `trial_end(outcome=aborted)`，不修改既有行；随后自动重算结果文件。
 - 任何结果写出失败都会使导出状态失败；结算页显示失败而不是静默宣称已保存。
 

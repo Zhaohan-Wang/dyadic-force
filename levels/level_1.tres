@@ -22,9 +22,9 @@ position = Vector2(1220, 464)
 normal = Vector2(1, 0)
 opening_width = 180.0
 thickness = 18.0
-speed_threshold = 260.0
-direction_cosine_min = 0.78
-activity_ratio_min = 0.68
+speed_threshold = 240.0
+direction_cosine_min = 0.68
+activity_ratio_min = 0.58
 window_s = 0.4
 
 [sub_resource type="Resource" id="Gate_3"]
@@ -34,9 +34,9 @@ position = Vector2(1900, 176)
 normal = Vector2(1, 0)
 opening_width = 180.0
 thickness = 18.0
-speed_threshold = 300.0
-direction_cosine_min = 0.84
-activity_ratio_min = 0.75
+speed_threshold = 240.0
+direction_cosine_min = 0.68
+activity_ratio_min = 0.58
 window_s = 0.4
 
 [resource]

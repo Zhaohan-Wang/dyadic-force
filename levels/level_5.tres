@@ -41,9 +41,9 @@ position = Vector2(2080, 1117)
 normal = Vector2(-1, 0)
 opening_width = 180.0
 thickness = 18.0
-speed_threshold = 300.0
-direction_cosine_min = 0.84
-activity_ratio_min = 0.75
+speed_threshold = 240.0
+direction_cosine_min = 0.68
+activity_ratio_min = 0.58
 window_s = 0.4
 
 [resource]
@@ -60,12 +60,12 @@ goal_point = Vector2(2580, 1660)
 route_centerline = PackedVector2Array(330, 370, 523, 358, 710, 380, 900, 420, 1086, 394, 1263, 420, 1434, 511, 1480, 540, 1539, 732, 1643, 884, 1799, 977, 1992, 1011, 2179, 947, 2273, 777, 2326, 587, 2330, 570, 2505, 650, 2595, 814, 2580, 1000, 2425, 1105, 2238, 1143, 2056, 1116, 1851, 1092, 1675, 1142, 1497, 1213, 1480, 1220, 1402, 1035, 1278, 906, 1099, 862, 899, 873, 722, 954, 621, 1108, 630, 1290, 598, 1474, 689, 1627, 857, 1694, 1035, 1722, 1230, 1720, 1414, 1696, 1604, 1681, 1788, 1711, 1975, 1729, 2163, 1707, 2348, 1683, 2538, 1664, 2580, 1660)
 route_corridor_half_width = 132.0
 route_completion_direction = Vector2(1, 0)
-time_limit = 120.0
+time_limit = 180.0
 target_duration_s = 80.0
 ball_max_hp = 3.0
 death_time_penalty = 8.0
 tutorial_steps = PackedStringArray()
-intro_lines = PackedStringArray("FIND YOUR WAY THROUGH THE FORKED TRAILS.", "REACH THE PORTAL WITHIN 120 SECONDS.")
+intro_lines = PackedStringArray("FIND YOUR WAY THROUGH THE FORKED TRAILS.", "REACH THE PORTAL WITHIN 180 SECONDS.")
 dampen_window = Vector2(0, 0)
 is_practice = false
 choice_forks = Array[ExtResource("2")]([SubResource("Fork_1"), SubResource("Fork_2")])

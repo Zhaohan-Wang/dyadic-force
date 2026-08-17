@@ -39,6 +39,7 @@ class PlayerCard:
 	var panel: NinePatchRect
 	var player_label: Label
 	var device_label: Label
+	var controller_backdrop: Panel
 	var controller_image: TextureRect
 	var keyboard_row: HBoxContainer
 	var guide: StickGuide
@@ -241,7 +242,7 @@ func _build() -> void:
 	actions.add_child(_retry_btn)
 
 	_continue_btn = MenuKit.make_big_button(GameState.ui("继续", "CONTINUE"), 30, Vector2(290, 90))
-	_continue_btn.pressed.connect(_go_level_select)
+	_continue_btn.pressed.connect(_go_guide)
 	_continue_btn.visible = false
 	actions.add_child(_continue_btn)
 
@@ -275,11 +276,23 @@ func _make_player_card(slot: int) -> PlayerCard:
 	card.player_label.size = Vector2(110, 42)
 	card.panel.add_child(card.player_label)
 
-	card.device_label = MenuKit.make_panel_label("", 22, 0.72)
+	card.device_label = MenuKit.make_panel_label("", 26, 0.78)
 	card.device_label.position = Vector2(140, 30)
 	card.device_label.size = Vector2(590, 34)
 	card.device_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	card.panel.add_child(card.device_label)
+
+	card.controller_backdrop = Panel.new()
+	card.controller_backdrop.position = Vector2(45, 78)
+	card.controller_backdrop.size = Vector2(300, 190)
+	card.controller_backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var controller_style: StyleBoxFlat = StyleBoxFlat.new()
+	controller_style.bg_color = Color(MenuKit.COL_CREAM, 0.82)
+	controller_style.border_color = Color(MenuKit.COL_INK, 0.34)
+	controller_style.set_border_width_all(3)
+	controller_style.set_corner_radius_all(18)
+	card.controller_backdrop.add_theme_stylebox_override("panel", controller_style)
+	card.panel.add_child(card.controller_backdrop)
 
 	card.controller_image = TextureRect.new()
 	card.controller_image.position = Vector2(45, 78)
@@ -303,14 +316,14 @@ func _make_player_card(slot: int) -> PlayerCard:
 	card.guide.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.panel.add_child(card.guide)
 
-	card.action_label = MenuKit.make_title_label("", 25, MenuKit.COL_ACCENT, true)
-	card.action_label.position = Vector2(34, 385)
-	card.action_label.size = Vector2(702, 42)
+	card.action_label = MenuKit.make_title_label("", 36, MenuKit.COL_ACCENT, true)
+	card.action_label.position = Vector2(34, 374)
+	card.action_label.size = Vector2(702, 58)
 	card.panel.add_child(card.action_label)
 
-	card.detail_label = MenuKit.make_panel_label("", 21, 0.72)
-	card.detail_label.position = Vector2(42, 438)
-	card.detail_label.size = Vector2(686, 72)
+	card.detail_label = MenuKit.make_panel_label("", 26, 0.82)
+	card.detail_label.position = Vector2(42, 436)
+	card.detail_label.size = Vector2(686, 82)
 	card.detail_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	card.detail_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	card.panel.add_child(card.detail_label)
@@ -330,6 +343,7 @@ func _setup_card_device(card: PlayerCard, slot: int) -> void:
 	var kind: InputHub.SourceKind = InputHub.slot_kind(slot)
 	if kind != InputHub.SourceKind.JOYPAD:
 		MenuKit.set_label_text(card.device_label, GameState.ui("键盘", "KEYBOARD"))
+		card.controller_backdrop.visible = false
 		card.controller_image.visible = false
 		card.keyboard_row.visible = true
 		var keys: Array[String] = ["W", "A", "S", "D"]
@@ -359,6 +373,7 @@ func _setup_card_device(card: PlayerCard, slot: int) -> void:
 		),
 	)
 	card.controller_image.visible = true
+	card.controller_backdrop.visible = true
 	card.keyboard_row.visible = false
 	card.controller_image.texture = _controller_texture(joy_id)
 	card.guide.mode = GuideMode.WAIT
@@ -474,6 +489,7 @@ func _tick_rest(delta: float) -> void:
 
 func _show_rest_failure() -> void:
 	_phase = Phase.FAILED
+	AudioHub.play_ui_error()
 	MenuKit.set_pixel_outline_text(
 		_step_label, GameState.ui("中心检测失败", "CENTER CHECK FAILED")
 	)
@@ -506,6 +522,7 @@ func _show_rest_failure() -> void:
 
 func _begin_circle() -> void:
 	_phase = Phase.CIRCLE
+	AudioHub.play_ui_ready()
 	_circle_joy_ids = InputHub.joined_joy_ids()
 	_circle_index = 0
 	_circle_max.clear()
@@ -548,6 +565,7 @@ func _tick_circle() -> void:
 		if _circle_index >= _circle_joy_ids.size():
 			_finish_ok()
 		else:
+			AudioHub.play_ui_ready()
 			_refresh_circle_cards()
 
 ## 更新左右卡片：当前手柄高亮操作，另一个手柄明确等待。
@@ -619,6 +637,7 @@ func _count_sectors(mask: int) -> int:
 
 func _finish_ok() -> void:
 	_phase = Phase.DONE
+	AudioHub.play_ui_ready()
 	MenuKit.set_pixel_outline_text(
 		_step_label, GameState.ui("输入检测完成", "INPUT CHECK COMPLETE")
 	)
@@ -675,13 +694,14 @@ func _set_badge(card: PlayerCard, text: String, color: Color) -> void:
 	style.corner_radius_bottom_right = 8
 	card.badge.add_theme_stylebox_override("normal", style)
 
-func _go_level_select() -> void:
+func _go_guide() -> void:
 	if not InputHub.all_joined_joypads_calibrated() and InputHub.has_joypad_joined():
 		return
-	SceneDirector.go_to("res://scenes/level_select.tscn")
+	SceneDirector.go_to("res://scenes/guide_screen.tscn")
 
 func _on_hotplug(_device_id: int, _connected: bool) -> void:
 	# 热插拔会改变卡片归属，回配对页最清楚且不会保留错误校准。
+	AudioHub.play_ui_error()
 	SceneDirector.go_to("res://scenes/pairing_screen.tscn")
 
 func _unhandled_key_input(event: InputEvent) -> void:
@@ -696,6 +716,6 @@ func _input(event: InputEvent) -> void:
 	elif event.is_action_pressed(InputHub.UI_ACCEPT_ACTION):
 		get_viewport().set_input_as_handled()
 		if _phase == Phase.DONE:
-			_go_level_select()
+			_go_guide()
 		elif _phase == Phase.FAILED:
 			_begin_rest()

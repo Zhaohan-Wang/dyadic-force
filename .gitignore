@@ -4,6 +4,9 @@
 .DS_Store
 **/.DS_Store
 
+# 本机导出的 macOS 包，不入库
+/build/
+
 # layout_audit 生成的关卡预览图（随时可重跑，不入库）
 docs/layout_previews/
 

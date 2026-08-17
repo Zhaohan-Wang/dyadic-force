@@ -292,17 +292,21 @@ func _unhandled_key_input(event: InputEvent) -> void:
 				and InputHub.find_kind_slot(InputHub.SourceKind.KEYBOARD_WASD) < 0:
 				InputHub.join_slot(0, InputHub.SourceKind.KEYBOARD_WASD)
 				_cards[0].spring.punch(0.3)
+				AudioHub.play_ui_ready()
 		KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT:
 			if not InputHub.is_joined(1) \
 				and InputHub.find_kind_slot(InputHub.SourceKind.KEYBOARD_ARROWS) < 0:
 				InputHub.join_slot(1, InputHub.SourceKind.KEYBOARD_ARROWS)
 				_cards[1].spring.punch(0.3)
+				AudioHub.play_ui_ready()
 		KEY_X:
 			if InputHub.slot_kind(0) == InputHub.SourceKind.KEYBOARD_WASD:
 				InputHub.leave_slot(0)
+				AudioHub.play_ui_error()
 		KEY_DELETE, KEY_BACKSPACE:
 			if InputHub.slot_kind(1) == InputHub.SourceKind.KEYBOARD_ARROWS:
 				InputHub.leave_slot(1)
+				AudioHub.play_ui_error()
 		KEY_ESCAPE:
 			InputHub.clear_slots()
 			SceneDirector.go_to(GameState.pairing_back_scene())
@@ -334,6 +338,7 @@ func _on_pad_accept(joy_id: int) -> void:
 		if slot >= 0:
 			_cards[slot].spring.punch(0.3)
 			HapticHub.confirm_join(joy_id)
+			AudioHub.play_ui_ready()
 		return
 	# 防止加入瞬间的同一次按键立即触发开始
 	if InputHub.both_ready() and Time.get_ticks_msec() - _slots_changed_ms > 500:
@@ -344,17 +349,20 @@ func _on_pad_cancel(joy_id: int) -> void:
 	var slot: int = InputHub.find_joypad_slot(joy_id)
 	if slot >= 0:
 		InputHub.leave_slot(slot)
+		AudioHub.play_ui_error()
 		return
 	InputHub.clear_slots()
 	SceneDirector.go_to(GameState.pairing_back_scene())
 
 func _on_hotplug(device_id: int, connected: bool) -> void:
 	if connected:
+		AudioHub.play_ui_ready()
 		_show_toast(GameState.ui(
 			"手柄 %d 已连接 · 按 A 加入" % (device_id + 1),
 			"GAMEPAD %d CONNECTED - PRESS (A) TO JOIN" % (device_id + 1),
 		))
 	else:
+		AudioHub.play_ui_error()
 		_show_toast(GameState.ui(
 			"手柄 %d 已断开" % (device_id + 1),
 			"GAMEPAD %d DISCONNECTED" % (device_id + 1),

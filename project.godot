@@ -11,15 +11,18 @@ config_version=5
 [application]
 
 config/name="DyadicForce"
+config/version="1.0"
 run/main_scene="res://scenes/title_screen.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
-config/icon="res://icon.svg"
+config/icon="res://assets/ui/monkey_push_ball.png"
+config/macos_native_icon="res://assets/ui/monkey_push_ball.icns"
 
 [autoload]
 
 GameState="*res://autoload/game_state.gd"
 InputHub="*res://autoload/input_hub.gd"
 HapticHub="*res://autoload/haptic_hub.gd"
+AudioHub="*res://autoload/audio_hub.gd"
 SceneDirector="*res://autoload/scene_director.gd"
 ExperimentLog="*res://autoload/experiment_log.gd"
 
@@ -90,3 +93,4 @@ p2_down={
 
 textures/canvas_textures/default_texture_filter=0
 rendering_device/driver.windows="d3d12"
+textures/vram_compression/import_etc2_astc=true

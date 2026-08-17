@@ -31,6 +31,7 @@ func _run() -> void:
 	_test_invalid_and_quality_metrics(protocol)
 	_test_perturbation_metrics(protocol)
 	_test_censoring(protocol)
+	_test_perturbation_window_boundaries(protocol)
 	_test_review_package(protocol)
 	if _failures.is_empty():
 		print("BEHAVIOR_METRICS_ASSERT_OK")
@@ -138,14 +139,14 @@ func _test_perturbation_metrics(protocol: ExperimentProtocol) -> void:
 	event["slot"] = 0
 	event["gain"] = 0.5
 	var result: Dictionary = ExperimentAnalyzer.analyze_perturbation(
-		frames, event, 1800.0, protocol, 1.0
+		frames, event, 900.0, protocol, 1.0, 2200.0
 	)
 	_expect(result["perturbed_participant"] == "A", "perturbed slot mapping")
 	_expect(result["compensation_status"] == "valid", "valid compensation")
 	_expect_close(result["compensation_reaction_ms"], 100.0, 20.1, "compensation reaction")
 	_expect(result["recovery_status"] == "recovered", "500ms recovery")
-	_expect_close(result["recovery_time_ms"], 800.0, 20.1, "recovery onset")
-	_expect_close(result["recovery_stable_time_ms"], 800.0, 20.1, "recovery analysis time")
+	_expect_close(result["recovery_time_ms"], 500.0, 20.1, "recovery onset")
+	_expect_close(result["recovery_stable_time_ms"], 500.0, 20.1, "recovery analysis time")
 	_expect(result["overshoot_status"] == "overshoot", "overshoot detection")
 	_expect_close(
 		result["overcompensation_index"], 0.5, 0.01, "overcompensation index"
@@ -166,6 +167,30 @@ func _test_censoring(protocol: ExperimentProtocol) -> void:
 	_expect_close(
 		result["recovery_stable_time_ms"], 300.0, 20.1,
 		"censored recovery observation limit",
+	)
+
+func _test_perturbation_window_boundaries(protocol: ExperimentProtocol) -> void:
+	var frames: Array[Dictionary] = []
+	for i: int in 101:
+		var time_ms: float = i * 20.0
+		var responder_force: float = -0.35 if time_ms >= 1000.0 else 0.0
+		var frame: Dictionary = _frame(
+			time_ms, 0.3, 0.0, responder_force, 0.0, 10.0, 10.0
+		)
+		frames.append(frame)
+	var event: Dictionary = _event(400.0, "perturb_on")
+	event["slot"] = 0
+	var result: Dictionary = ExperimentAnalyzer.analyze_perturbation(
+		frames, event, 900.0, protocol, 1.0, 1300.0
+	)
+	_expect(
+		result["compensation_status"] == "no_valid_compensation",
+		"compensation after perturb_off must not count",
+	)
+	_expect(int(result["recovery_censored"]) == 1, "next perturbation must censor recovery")
+	_expect_close(
+		result["recovery_observation_ms"], 900.0, 20.1,
+		"recovery observation must stop at next perturb_on",
 	)
 
 func _test_review_package(protocol: ExperimentProtocol) -> void:

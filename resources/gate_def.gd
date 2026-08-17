@@ -1,6 +1,6 @@
 class_name GateDef
 extends Resource
-## 可撞门配置：位置、门轴与判定阈值。第 1、3、5 关在用。
+## 可撞门配置：位置、门轴与判定阈值。教学关与第 1、3、5 关在用。
 
 ## 门唯一 ID（写入日志 component_id）
 @export var gate_id: String = "gate_1"
@@ -13,7 +13,7 @@ extends Resource
 @export var opening_width: float = 180.0
 ## 门板厚度（像素）
 @export var thickness: float = 18.0
-## 碰撞前正向速度阈值（像素/秒）；第 1 关三门约为 240 / 260 / 300
+## 碰撞前正向速度阈值（像素/秒）；正式关卡统一使用 240
 @export var speed_threshold: float = 240.0
 ## 双方施力方向余弦下限（0～1）
 @export var direction_cosine_min: float = 0.60

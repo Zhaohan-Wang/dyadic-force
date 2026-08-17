@@ -166,14 +166,15 @@ func _run() -> void:
 
 	level.queue_free()
 	await process_frame
-	await _assert_hard_gate_runup(input_hub, game_state)
+	await _assert_standard_gate_runup(input_hub, game_state)
+	await _assert_tutorial_gate_runup(input_hub, game_state)
 
 	_finish()
 
-## 第 3/5 关的门统一用第 1 关最难那档（300 px/s、余弦 0.84、有效发力 0.75）。
+## 第 3/5 关的门统一用第 1 关第一扇门的难度（240 px/s、余弦 0.68、有效发力 0.58）。
 ## 这一档必须"跑得起来"：双人满推从出生点冲到门口时，正向速度要过阈值并真的撞开门。
 ## 阈值调高但助跑距离不够的话，玩家会卡死在门前，所以这条必须端到端跑一遍。
-func _assert_hard_gate_runup(input_hub: Node, game_state: Node) -> void:
+func _assert_standard_gate_runup(input_hub: Node, game_state: Node) -> void:
 	for level_path: String in ["res://levels/level_3.tres", "res://levels/level_5.tres"]:
 		var level_def: Resource = load(level_path)
 		game_state.set("current_level", level_def)
@@ -195,14 +196,14 @@ func _assert_hard_gate_runup(input_hub: Node, game_state: Node) -> void:
 		for gate: Node in gates:
 			var gate_def: Resource = gate.get("def") as Resource
 			_expect(
-				is_equal_approx(float(gate_def.get("speed_threshold")), 300.0),
-				"%s %s must use the hard threshold, got %.0f"
+				is_equal_approx(float(gate_def.get("speed_threshold")), 240.0),
+				"%s %s must use the standard threshold, got %.0f"
 					% [level_path, gate_def.get("gate_id"), gate_def.get("speed_threshold")]
 			)
 			_expect(
-				is_equal_approx(float(gate_def.get("direction_cosine_min")), 0.84)
-				and is_equal_approx(float(gate_def.get("activity_ratio_min")), 0.75),
-				"%s %s must use the hard cosine/activity pair" % [level_path, gate_def.get("gate_id")]
+				is_equal_approx(float(gate_def.get("direction_cosine_min")), 0.68)
+				and is_equal_approx(float(gate_def.get("activity_ratio_min")), 0.58),
+				"%s %s must use the standard cosine/activity pair" % [level_path, gate_def.get("gate_id")]
 			)
 
 		# 只测第一扇门：它离出生点最近，助跑距离最短，是最容易卡住的那扇
@@ -231,16 +232,65 @@ func _assert_hard_gate_runup(input_hub: Node, game_state: Node) -> void:
 		Input.action_release(press_x2)
 		_expect(
 			bool(gate1.call("is_opened")),
-			"%s first hard gate must break with a 420px run-up, peak=%.0f px/s"
+			"%s first gate must break with a 420px run-up, peak=%.0f px/s"
 				% [level_path, peak]
 		)
 		_expect(
-			peak >= 300.0,
-			"%s run-up peaked below the hard threshold: %.0f px/s" % [level_path, peak]
+			peak >= 240.0,
+			"%s run-up peaked below the standard threshold: %.0f px/s" % [level_path, peak]
 		)
 		print("  %s run-up peak %.0f px/s" % [level_path, peak])
 		level.queue_free()
 		await process_frame
+
+## 教学门前必须有一段中央无碰撞直道，并能从该直道内完成满推撞门。
+func _assert_tutorial_gate_runup(input_hub: Node, game_state: Node) -> void:
+	game_state.set("current_level", load("res://levels/practice.tres"))
+	var level: Node = (load("res://scenes/level.tscn") as PackedScene).instantiate()
+	root.add_child(level)
+	await process_frame
+	await process_frame
+	var intro: Node = level.find_child("IntroPopup", true, false)
+	if intro != null:
+		intro.queue_free()
+	input_hub.set("input_frozen", false)
+
+	var gates: Array = level.get("_gates") as Array
+	_expect(gates.size() == 1, "tutorial must spawn exactly one gate")
+	if gates.is_empty():
+		level.queue_free()
+		await process_frame
+		return
+	var gate: Node = gates[0] as Node
+	var gate_pos: Vector2 = gate.get("global_position") as Vector2
+	var world: Node2D = level.find_child("World", true, false) as Node2D
+	var clear_rect: Rect2 = Rect2(Vector2(500.0, 48.0), Vector2(gate_pos.x - 560.0, 160.0))
+	for child: Node in world.get_children():
+		if child.is_in_group("ordinary_obstacle") and clear_rect.has_point((child as Node2D).global_position):
+			_fail("tutorial run-up has obstacle %s at %s" % [child.name, (child as Node2D).global_position])
+
+	var ball: Node2D = level.get("_ball") as Node2D
+	ball.global_position = gate_pos - Vector2(280.0, 0.0)
+	ball.set("linear_velocity", Vector2.ZERO)
+	ball.set("_prev_velocity", Vector2.ZERO)
+	await physics_frame
+	Input.action_press("p1_right")
+	Input.action_press("p2_right")
+	var peak: float = 0.0
+	for _i: int in 240:
+		await physics_frame
+		peak = maxf(peak, (ball.get("linear_velocity") as Vector2).x)
+		if bool(gate.call("is_opened")):
+			break
+	Input.action_release("p1_right")
+	Input.action_release("p2_right")
+	_expect(
+		bool(gate.call("is_opened")),
+		"tutorial gate must break from its clear 280px run-up, peak=%.0f px/s" % peak,
+	)
+	print("  tutorial clear run-up peak %.0f px/s" % peak)
+	level.queue_free()
+	await process_frame
 
 ## 记一个失败（不抛断言：--script 模式下断言中断会让进程挂死）
 func _fail(msg: String) -> void:

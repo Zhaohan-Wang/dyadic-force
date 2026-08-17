@@ -59,7 +59,8 @@ func _run() -> void:
 		_log.log_frame(1.0 / 60.0, "running", ball)
 	_log.log_event("perturb_off", {"slot": 0, "gain": 1.0})
 	_log.log_event("success", {"outcome": "success"})
-	_expect(_log.end_trial("success"), "automatic derived export failed after success")
+	_expect(_log.end_trial("success"), "automatic derived export was not queued after success")
+	await _wait_for_export()
 	var saved: Dictionary = _log.summary_dict()
 	_expect(bool(saved["data_export_ok"]), "saved status was not exposed")
 	_expect(str(saved["data_export_message"]) == "saved", "saved status message mismatch")
@@ -74,18 +75,21 @@ func _run() -> void:
 	_expect(first["log_events"] == second["log_events"], "same-level retry changed raw event path")
 	_log.log_event("run_start")
 	_log.log_event("timeout_failure", {"outcome": "timeout"})
-	_expect(_log.end_trial("timeout"), "automatic derived export failed after timeout")
+	_expect(_log.end_trial("timeout"), "automatic derived export was not queued after timeout")
+	await _wait_for_export()
 
 	_expect(_log.begin_trial(level_def, "baseline"), "restart trial did not start")
 	_log.log_event("restart_requested")
-	_expect(_log.end_trial("restarted"), "automatic derived export failed after restart")
+	_expect(_log.end_trial("restarted"), "automatic derived export was not queued after restart")
+	await _wait_for_export()
 
 	_expect(_log.begin_trial(level_def, "baseline"), "quit trial did not start")
 	_log.log_event("quit_mid_trial", {"note": "level_select_requested"})
 	_expect(
 		_log.end_trial("quit", "level_select_requested"),
-		"automatic derived export failed after quit",
+		"automatic derived export was not queued after quit",
 	)
+	await _wait_for_export()
 
 	# 事件缓冲与 flush 压力代理：6000 行远高于一分钟 60 Hz 的离散事件量。
 	_expect(_log.begin_trial(level_def, "baseline"), "flush trial did not start")
@@ -95,7 +99,11 @@ func _run() -> void:
 	_log.flush()
 	var flush_elapsed_ms: float = float(Time.get_ticks_usec() - flush_start_us) / 1000.0
 	_expect(flush_elapsed_ms < 5000.0, "6000-row buffer/flush exceeded 5s: %.2fms" % flush_elapsed_ms)
-	_expect(_log.end_trial("restarted"), "automatic derived export failed after flush trial")
+	var end_start_us: int = Time.get_ticks_usec()
+	_expect(_log.end_trial("restarted"), "automatic derived export was not queued after flush trial")
+	var end_elapsed_ms: float = float(Time.get_ticks_usec() - end_start_us) / 1000.0
+	_expect(end_elapsed_ms < 250.0, "end_trial blocked on analysis: %.2fms" % end_elapsed_ms)
+	await _wait_for_export()
 
 	# close_session 覆盖仍活跃试次的 app_abort + aborted trial_end。
 	_expect(_log.begin_trial(level_def, "baseline"), "abort trial did not start")
@@ -118,6 +126,16 @@ func _run() -> void:
 
 	_test_interruption_recovery()
 	_finish()
+
+func _wait_for_export() -> void:
+	var started_us: int = Time.get_ticks_usec()
+	while str(_log.summary_dict().get("data_export_message", "")) == "pending":
+		if Time.get_ticks_usec() - started_us > 20_000_000:
+			_fail("background derived export timed out")
+			return
+		await create_timer(0.01).timeout
+	var summary: Dictionary = _log.summary_dict()
+	_expect(bool(summary.get("data_export_ok", false)), "background derived export failed")
 
 func _prepare_identity() -> void:
 	_game_state.set("experiment_mode", true)
